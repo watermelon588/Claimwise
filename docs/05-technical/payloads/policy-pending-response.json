@@ -1,0 +1,52 @@
+{
+  "thread_id": "demo_claim_001",
+  "reply": "",
+  "pending": {
+    "type": "confirm_policy",
+    "question": "Please check the policy details.",
+    "policy": {
+      "doc_id": "0123456789abcdef0123456789abcdef",
+      "status": "pending",
+      "corrected_fields": [],
+      "insurer": "Demo Insurer",
+      "policy_number": "DEMO-POLICY-001",
+      "policy_type": "individual",
+      "members": [
+        "Demo Patient"
+      ],
+      "sum_insured": 500000,
+      "period_start": "2026-04-01",
+      "period_end": "2027-03-30",
+      "tpa": null
+    }
+  },
+  "onboarding": {
+    "complete": false,
+    "missing": [
+      "policy_confirmation",
+      "role"
+    ]
+  },
+  "claim": null,
+  "documents": [
+    {
+      "id": "0123456789abcdef0123456789abcdef",
+      "filename": "synthetic-policy.pdf",
+      "mime_type": "application/pdf",
+      "status": "parsed",
+      "doc_type": "policy_schedule",
+      "facts": null,
+      "error": null
+    }
+  ],
+  "actions": [],
+  "notifications": [],
+  "submission": null,
+  "connection": null,
+  "history": null,
+  "answers": {},
+  "authority": null,
+  "audit": [],
+  "household": null,
+  "dispute": null
+}

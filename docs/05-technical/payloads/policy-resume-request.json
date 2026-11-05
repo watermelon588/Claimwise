@@ -1,0 +1,8 @@
+{
+  "thread_id": "demo_claim_001",
+  "approved": true,
+  "corrections": {
+    "policy_number": "DEMO-POLICY-001",
+    "period_end": "2027-03-31"
+  }
+}

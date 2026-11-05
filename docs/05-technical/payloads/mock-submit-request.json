@@ -1,0 +1,23 @@
+{
+  "client_reference": "cw-demo-claim-001",
+  "policy_number": "DEMO-POLICY-001",
+  "member_name": "Demo Patient",
+  "acting_user": null,
+  "claim_type": "reimbursement",
+  "admission_date": "2026-10-02",
+  "discharge_date": "2026-10-05",
+  "claimed_amount": 6000000,
+  "line_items": [
+    {
+      "head": "Demo hospital charges",
+      "amount": 6000000
+    }
+  ],
+  "documents": [
+    {
+      "id": "0123456789abcdef0123456789abcdef",
+      "filename": "synthetic-final-bill.pdf",
+      "doc_type": "hospital_bill"
+    }
+  ]
+}
