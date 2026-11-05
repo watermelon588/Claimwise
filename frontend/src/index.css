@@ -1,1 +1,113 @@
+/* Claimwise theme: buttermilk canvas, ink type, Sunset Coral as the single accent. */
 @import "tailwindcss";
+
+@theme {
+  --color-milk: #fff8e8;
+  --color-milk-deep: #f6ecd6;
+  --color-paper: #fffdf7;
+  --color-ink: #111111;
+  --color-ink-soft: #2b2b2b;
+  --color-muted: #6b655a;
+  --color-line: #ebdfc6;
+  --color-coral: #ff5b3e;
+  --color-coral-soft: #ffe8e0;
+  --color-coral-ink: #c23a21;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+}
+
+body {
+  @apply bg-milk font-sans text-ink antialiased;
+  line-height: 1.6;
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: var(--color-coral-soft);
+}
+
+/* Thin scroll thumbs stay visible on the light workspace and the ink sidebar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb, #aa9b80) transparent;
+}
+
+.on-ink {
+  --scroll-thumb: #777168;
+}
+
+body:has(dialog[open]) {
+  overflow: hidden;
+}
+
+@media (forced-colors: active) {
+  * { scrollbar-color: auto; }
+}
+
+/* Lenis smooth scrolling. */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+/* Visible keyboard focus; milk on ink panels. */
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+.on-ink :focus-visible {
+  outline-color: var(--color-milk);
+}
+
+/* Grouped policy fields show focus around the entire field. */
+.policy-field :is(input, textarea, select):focus-visible {
+  outline: none;
+}
+
+@media (forced-colors: active) {
+  .policy-field:focus-within { outline: 2px solid Highlight; }
+}
+
+/* Indeterminate bar while a document is being read. */
+@keyframes indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.animate-indeterminate {
+  animation: indeterminate 1.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+/* Skeleton shimmer for the reply that is about to stream in. */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, rgb(17 17 17 / 0.05) 25%, rgb(17 17 17 / 0.1) 50%, rgb(17 17 17 / 0.05) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-indeterminate,
+  .animate-shimmer {
+    animation: none;
+  }
+}

@@ -1,0 +1,115 @@
+/* Pip uses a transparent pose layer plus a separate activity cue. */
+.pip {
+  position: relative;
+  isolation: isolate;
+  display: inline-block;
+  flex: none;
+  inline-size: 2.5rem;
+  aspect-ratio: 1;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+.pip--sidebar { inline-size: 3.25rem; }
+.pip--hero { inline-size: 6rem; }
+
+.pip__pose {
+  position: absolute;
+  inset: 0;
+  background: url('/mascot-pip.png') 0 0 / 400% 200% no-repeat;
+  transform-origin: 50% 82%;
+}
+
+.pip:is([data-pip="welcome"], [data-pip="streaming"]) .pip__pose { background-position: 33.333333% 0; }
+.pip[data-pip="tool"] .pip__pose { background-position: 66.666667% 0; }
+.pip:is([data-pip="thinking"], [data-pip="checking"]) .pip__pose { background-position: 100% 0; }
+.pip[data-pip="reading"] .pip__pose { background-position: 0 100%; }
+
+.pip__cue {
+  position: absolute;
+  display: none;
+  inset-inline-end: 2%;
+  inset-block-start: 7%;
+  align-items: center;
+  justify-content: center;
+  gap: 8%;
+  inline-size: 36%;
+  block-size: 22%;
+}
+
+.pip__cue i {
+  flex: 0 0 16%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--color-coral);
+}
+
+.pip[data-pip-motion="full"]:is([data-pip="thinking"], [data-pip="streaming"], [data-pip="tool"], [data-pip="checking"]) .pip__cue { display: flex; }
+.pip[data-pip="tool"] .pip__cue { inset-block-start: 24%; inset-inline-end: 0; }
+.pip[data-pip="tool"] .pip__cue i { border-radius: 1px; background: #ffd84d; }
+.pip[data-pip="streaming"] .pip__cue i { aspect-ratio: 1 / 2; border-radius: 2px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .pip[data-pip-motion="full"][data-pip="welcome"] .pip__pose { animation: pip-hello 2.8s ease-in-out infinite; }
+  .pip[data-pip-motion="full"][data-pip="thinking"] .pip__pose { animation: pip-ponder 2.4s ease-in-out infinite; }
+  .pip[data-pip-motion="full"][data-pip="checking"] .pip__pose { animation: pip-ponder 1.45s ease-in-out infinite; }
+  .pip[data-pip-motion="full"][data-pip="tool"] .pip__pose { animation: pip-cast 1.35s ease-in-out infinite; }
+  .pip[data-pip-motion="full"][data-pip="streaming"] .pip__pose { animation: pip-talk 960ms ease-in-out infinite; }
+  .pip[data-pip-motion="full"][data-pip="reading"] .pip__pose { animation: pip-lift 1.6s ease-in-out infinite; }
+  .pip[data-pip-motion="brief"] .pip__pose { animation: pip-status-in 320ms ease-out both; }
+  .pip[data-pip-motion="brief"][data-pip="ready"] .pip__pose { animation: pip-idle 3.2s ease-in-out infinite; }
+
+  .pip[data-pip-motion="full"] .pip__cue i { animation: pip-beat 1.2s ease-in-out infinite; }
+  .pip[data-pip-motion="full"][data-pip="tool"] .pip__cue i { animation-name: pip-spark; }
+  .pip[data-pip-motion="full"][data-pip="streaming"] .pip__cue i { animation-name: pip-voice; animation-duration: 780ms; }
+  .pip[data-pip-motion="full"] .pip__cue i:nth-child(2) { animation-delay: 120ms; }
+  .pip[data-pip-motion="full"] .pip__cue i:nth-child(3) { animation-delay: 240ms; }
+}
+
+@keyframes pip-hello {
+  0%, 60%, 100% { transform: translateY(0) rotate(0); }
+  18% { transform: translateY(-14%) rotate(-9deg); }
+  38% { transform: translateY(-3%) rotate(7deg); }
+}
+
+@keyframes pip-idle {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-8%) rotate(5deg); }
+}
+
+@keyframes pip-status-in {
+  from { opacity: .6; transform: translateY(4%) scale(.96); }
+}
+
+@keyframes pip-ponder {
+  50% { transform: translateY(-4%) rotate(-6deg); }
+}
+
+@keyframes pip-cast {
+  35% { transform: translateY(-7%) rotate(-8deg); }
+  65% { transform: rotate(4deg); }
+}
+
+@keyframes pip-talk {
+  50% { transform: translateY(-4%) scale(1.03, .96); }
+}
+
+@keyframes pip-lift {
+  45% { transform: translateY(-7%) rotate(4deg); }
+  75% { transform: translateY(1%) scale(1.04, .97); }
+}
+
+@keyframes pip-beat {
+  0%, 70%, 100% { opacity: .45; }
+  35% { opacity: 1; transform: translateY(-35%); }
+}
+
+@keyframes pip-spark {
+  0%, 100% { opacity: .25; transform: rotate(45deg) scale(.9); }
+  40% { opacity: 1; transform: translateY(-65%) rotate(45deg) scale(1.12); }
+}
+
+@keyframes pip-voice {
+  0%, 100% { opacity: .65; transform: scaleY(.55); }
+  45% { opacity: 1; transform: scaleY(1.25); }
+}
