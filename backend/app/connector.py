@@ -28,7 +28,7 @@ class ConnectorError(Exception):
         return self.status == 0 or self.status >= 500
 
 
-def _call(method: str, path: str, body: dict | None = None, headers: dict | None = None) -> dict:
+def _call(method: str, path: str, body: dict | None = None, headers: dict | None = None, pdf: bool = False) -> dict:
     """One JSON request to the gateway with the server bearer key.
 
     Raises:
@@ -45,6 +45,10 @@ def _call(method: str, path: str, body: dict | None = None, headers: dict | None
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
+            if pdf:
+                if response.headers.get_content_type() != "application/pdf" or response.read(4) != b"%PDF":
+                    raise ConnectorError(502, "INVALID_PROVIDER_DOCUMENT")
+                return {"document_available": True}
             return json.loads(response.read(1024 * 1024))
     except urllib.error.HTTPError as exc:
         try:
@@ -61,9 +65,22 @@ def _case(case_id: str) -> str:
     return "/agent/cases/" + urllib.parse.quote(case_id, safe="")
 
 
-def connected_tools(case_id: str) -> list[str]:
+def connected_tools(case_id: str, thread_id: str | None = None) -> list[str]:
     """Tool names the user has consented to for this case."""
-    return [tool["name"] for tool in _call("GET", _case(case_id) + "/tools")["tools"]]
+    headers = {"X-Claimwise-Thread": thread_id} if thread_id else None
+    return [tool["name"] for tool in _call("GET", _case(case_id) + "/tools", headers=headers)["tools"]]
+
+
+def read_fixture(case_id: str, name: str) -> dict:
+    """Retrieve a fixed, approved mock resource or confirm that the PDF is available."""
+    result = _call("GET", _case(case_id) + "/tools/" + urllib.parse.quote(name, safe=""),
+                   pdf=name == "read_discharge_summary")
+    return result.get("data", result)
+
+
+def deliver_notices(case_id: str, notices: list[dict]) -> None:
+    """Pass minimized notices to the case's consented synthetic mailbox."""
+    _call("POST", _case(case_id) + "/mail", {"notices": notices})
 
 
 def submit_claim(case_id: str, submission: dict, idempotency_key: str) -> dict:

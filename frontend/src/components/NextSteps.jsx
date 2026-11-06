@@ -1,36 +1,9 @@
 // Next-step buttons under the latest agent reply. The list comes from the server and follows the claim state.
 import { useState } from 'react'
-import { Download, ExternalLink, Link2 } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { Submitted } from './Alerts.jsx'
 import { Button, FilePick, Outline, Quiet } from './ui.jsx'
 import { FIELD, ICON } from './tokens.js'
-
-/** Open the connector page, then paste the connection code it shows. */
-function Connect({ action, cw }) {
-  const [open, setOpen] = useState(false)
-  const [code, setCode] = useState('')
-
-  /** Link the code; keep the field open if the server refuses it. */
-  async function link(e) {
-    e.preventDefault()
-    if (await cw.linkConnection(code)) setOpen(false)
-  }
-
-  if (!open) {
-    return (
-      <Button onClick={() => { window.open(action.href, '_blank', 'noopener'); setOpen(true) }}>
-        <ExternalLink {...ICON} />{action.label}
-      </Button>
-    )
-  }
-  return (
-    <form onSubmit={link} className="flex w-full gap-2">
-      <input value={code} onChange={(e) => setCode(e.target.value)} required pattern="[A-Za-z0-9_\-]{8,64}"
-        placeholder="Connection code from the connector page" aria-label="Connection code" className={`${FIELD} h-10`} />
-      <Button type="submit" disabled={cw.busy || !code.trim()}><Link2 {...ICON} />Link</Button>
-    </form>
-  )
-}
 
 /** "I sent it" form for a grievance or Ombudsman complaint: the date (checked on the server) and any reference. */
 function Dated({ action, cw }) {
@@ -58,8 +31,6 @@ function Step({ action, cw, onForm }) {
           <Download {...ICON} />{action.label}
         </a>
       )
-    case 'connect':
-      return <Connect action={action} cw={cw} />
     case 'form':
       return <Outline onClick={() => onForm(action)} disabled={cw.busy}>{action.label}</Outline>
     case 'focus':
@@ -77,12 +48,13 @@ function Step({ action, cw, onForm }) {
  */
 export default function NextSteps({ cw }) {
   const [formId, setFormId] = useState(null)
-  if (cw.busy || cw.pending || !cw.actions.length) return null
+  const actions = cw.actions.filter((action) => action.kind !== 'connect')
+  if (cw.busy || cw.pending || !actions.length) return null
   const form = cw.actions.find((a) => a.kind === 'form' && a.id === formId)
   return (
     <div data-reveal className="space-y-3 pl-11">
       <div role="group" aria-label="Next steps" className="flex flex-wrap gap-2">
-        {cw.actions.map((a) => (
+        {actions.map((a) => (
           <Step key={`${a.id}:${a.data?.doc_id ?? ''}`} action={a} cw={cw} onForm={(f) => setFormId(f.id)} />
         ))}
       </div>

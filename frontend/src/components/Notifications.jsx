@@ -23,7 +23,7 @@ const when = (iso) => new Date(iso).toLocaleString(undefined, { day: 'numeric', 
  * @param {{cw: object}} props
  * @returns {JSX.Element|null}
  */
-export default function Notifications({ cw }) {
+export default function Notifications({ cw, showConnection = true }) {
   const [all, setAll] = useState(false)
   const { notifications: notes, connection, submission } = cw
   if (!notes.length && !connection && !submission) return null
@@ -31,19 +31,19 @@ export default function Notifications({ cw }) {
   const shown = all ? notes : notes.slice(0, 4)
 
   return (
-    <section aria-labelledby="dossier-updates" className="mt-12">
+    <section aria-labelledby="dossier-updates" className="mt-8">
       <div className="mb-2 flex items-center justify-between gap-3">
         <h2 id="dossier-updates" className={EYEBROW}>Updates{unread ? ` (${unread} new)` : ''}</h2>
         {unread > 0 && <Quiet onClick={cw.markRead} className="h-8 text-xs">Mark all read</Quiet>}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-line py-3 text-sm">
-        <span className="inline-flex items-center gap-2">
+        {showConnection && <span className="inline-flex items-center gap-2">
           <Plug {...ICON} size={14} />
           {connection?.status === 'active' && 'Insurer account connected (mock)'}
           {connection?.status === 'expired' && <span className="text-coral-ink">Insurer connection expired. Connect again from the buttons below.</span>}
           {!connection && 'No insurer account connected'}
-        </span>
-        {connection && <Quiet onClick={cw.unlinkConnection} disabled={cw.busy} className="h-8 text-xs">Disconnect</Quiet>}
+        </span>}
+        {showConnection && connection && <Quiet onClick={cw.unlinkConnection} disabled={cw.busy} className="h-8 text-xs">Disconnect</Quiet>}
         {submission && SUBMISSION[submission.status] && <span className="w-full text-muted">{SUBMISSION[submission.status](submission)}</span>}
       </div>
       {notes.length > 0 && (

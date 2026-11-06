@@ -1,8 +1,19 @@
 # Mock provider connectors
 
-The mock connector gateway exposes provider reads after the user authorizes access. The local demo runs on port 8101 alongside the mock services on port 8100. The Claimwise backend can bind the demo case to a thread for mock TPA submission, lookup and status. Other reads are available at the gateway. The workspace also supports a manual handoff.
+The mock connector gateway exposes provider reads after the user authorizes access. The local demo runs on port 8101 alongside the mock services on port 8100. The Claimwise backend binds a verified workspace to its claim thread for approved provider reads and mock TPA submission, lookup and status. The workspace also supports a manual handoff.
 
-## What a user sees
+## Connect tools in the Dossier
+
+Complete onboarding and open **Connect tools** beside the conversation. Start the gateway and services as described below, then use the workspace verification code printed by the gateway. Pick a provider, check what it can access, enter its demo sign-in code and approve the grant. Approval applies to the current case. Use **Disconnect** to revoke a grant or **Refresh approved tools** to retry a provider read. The open conversation checks approved tools again every 30 seconds while the case is idle.
+
+- **Medivista TPA** reads claim progress and notices. Claim submission keeps its separate pack approval. Once submitted online, the existing monitor uses that claim's reference for updates and receives signed mock payer events.
+- **Doctor portal**, **bank** and **insurance** read the fixed mock fixtures. The portal's discharge PDF is available from the approved card. These observations are labelled as demo evidence in chat and can inform the agent. They do not change the claim stage or mark a payment verified.
+- **Case email** opts into a synthetic inbox. New claim alerts are delivered once per notice after approval, without case details or attachments. Open the inbox from the email card. Disconnecting removes the inbox and blocks later delivery. A real mailbox would require a provider and verified recipient.
+- **Case details** opens the side panel with journey progress, uploaded documents, notices, the claim decision, payment status and the case record.
+
+The Vite development server proxies the browser-facing gateway routes on port 8101. Workspace verification uses an HttpOnly cookie scoped by thread identifier. The backend uses its separate server credential and checks that the verified case belongs to the requested thread before reading approved tools. Agent turns recheck grants before using the latest connector observations. Scope and provider routing live at the gateway, so mock adapters can later be replaced behind that boundary.
+
+## Standalone gateway walkthrough
 
 1. **Verify the case.** Enter the demo onboarding code from the connector terminal. The gateway creates an isolated case session and displays its case reference.
 2. **Choose a provider.** The provider card names the data the agent can read. Enter that provider's separate demo sign-in code and tick the approval checkbox. Both checks must pass.
@@ -49,7 +60,7 @@ Invoke-RestMethod -Method Post "$mockBase/hospital/admissions/ADM-001/discharge?
 Invoke-RestMethod -Method Post "$mockBase/bank/accounts/ACC-001/credits" -Headers $mockHeaders -ContentType 'application/json' -Body '{"amount":4230000,"utr":"UTR-DEMO-001","narration":"Synthetic settlement"}'
 ```
 
-Then start the gateway and open [the local connection page](http://127.0.0.1:8101/).
+Then start the gateway. [The standalone connection page](http://127.0.0.1:8101/) is also available for direct gateway testing.
 
 ```powershell
 $env:CLAIMWISE_CONNECTOR_DEMO = '1'
@@ -57,6 +68,8 @@ $env:CLAIMWISE_CONNECTOR_DEMO = '1'
 ```
 
 If 8100 is already in use, start the disposable mock instance on a different port and use that port in both `$mockBase` and `$env:CLAIMWISE_MOCK_PORT` before starting the gateway. Terminal 2 prints the synthetic verification and sign-in codes. Verify a case, connect one provider, and refresh the page to confirm it stays connected.
+
+For the in-app flow, start the backend and frontend as described in the [repository README](../../README.md#run-locally). Set the backend's `CONNECTOR_URL` to `http://127.0.0.1:8101` and `CONNECTOR_AGENT_KEY` to the gateway's server bearer key. Enter only the demo verification and provider sign-in codes in the browser. Enable the existing signed mock webhook on both services to see payer updates without refreshing. The connector proxy currently runs in Vite development.
 
 ## Gateway read contract and production binding
 
@@ -90,7 +103,7 @@ The TPA connection also covers three claim endpoints. All need the server bearer
 | `GET /agent/cases/{case_id}/claims?client_reference=` | Find a claim by client reference. Claimwise calls this before every submission and after any unclear failure, so an accepted claim whose answer was lost is adopted instead of sent twice. |
 | `GET /agent/cases/{case_id}/claims/{claim_id}` | Read status, queries (with `raised_at`, `answered_at`, `due_at`), the decision with line items, and payments. |
 
-In the Claimwise backend, the user binds a case to a claim thread by pasting the case reference shown on this page (mock only; no real login). The backend keeps the case reference on the server. Node M1 reads the submitted claim at the start of every turn and when the mock payer's signed webhook arrives, and turns queries, decisions and payments into insurer-letter records. Revoking the TPA connection here makes the next read return `403`, and Claimwise marks the connection expired.
+The Dossier binds the verified workspace to the claim thread as soon as an approved tool is synchronized. The standalone gateway retains its case reference for direct API testing. Node M1 reads the submitted claim at the start of every turn and when the mock payer's signed webhook arrives, and turns queries, decisions and payments into insurer-letter records. Revoking the TPA connection here makes the next read return `403`, and Claimwise marks the connection expired.
 
 ### Acting for someone else (added in session 030)
 

@@ -11,7 +11,7 @@ import logging
 import re
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
@@ -21,6 +21,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.types import Command
 
 from app import connector
+from app.agent.connector_updates import connector_evidence, email_updates
 from app.agent.actions import action_input, next_actions
 from app.agent.authority import audit, now_iso, validate_authority, withdrawal
 from app.agent.grievance import dispute_view
@@ -183,7 +184,9 @@ def refresh(request: Request, thread_id: str) -> dict:
         if snapshot.values and not snapshot.next and not snapshot.interrupts:
             graph.invoke({"requested_action": None}, run_config(thread_id, "refresh"))
             snapshot = graph.get_state(config)
-    return shape(request, thread_id, snapshot.values or {}, snapshot.interrupts, with_history=True)
+    values = snapshot.values or {}
+    email_updates(values)
+    return shape(request, thread_id, values, snapshot.interrupts, with_history=True)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -464,6 +467,43 @@ def link_connection(body: ConnectionRequest, request: Request) -> ChatResponse:
         raise HTTPException(status_code=400, detail="Connect Medivista TPA on the connector page first. It allows submission.")
     linked_at = datetime.now().astimezone().isoformat(timespec="seconds")
     write_state(request, body.thread_id, {"connection": {"case_id": body.code, "linked_at": linked_at, "status": "active"}})
+    return ChatResponse(**refresh(request, body.thread_id))
+
+
+@router.post("/connection/sync", response_model=ChatResponse)
+def sync_workspace_connections(body: ConnectionRequest, request: Request) -> ChatResponse:
+    """Bind the verified gateway workspace and read only the scopes approved for this thread."""
+    graph, config = request.app.state.graph, {"configurable": {"thread_id": body.thread_id}}
+    with thread_lock(body.thread_id):
+        snapshot = graph.get_state(config)
+        values = snapshot.values or {}
+        if not (values.get("onboarding") or {}).get("complete") or snapshot.next or snapshot.interrupts:
+            raise HTTPException(409, "Finish the current step before connecting tools.")
+        try:
+            tools = connector.connected_tools(body.code, body.thread_id)
+        except connector.ConnectorError as exc:
+            if exc.status in (401, 403):
+                workspace = values.get("workspace_connectors") or {}
+                if exc.status == 401 and workspace.get("case_id") == body.code:
+                    update = {"workspace_connectors": {}}
+                    if (values.get("connection") or {}).get("case_id") == body.code:
+                        update["connection"] = None
+                    graph.update_state(config, update, as_node="reply_off_topic")
+                raise HTTPException(403, "Verify this demo workspace before connecting tools.") from exc
+            raise HTTPException(503, "The demo connector service is unavailable.") from exc
+
+        at = datetime.now(timezone.utc).isoformat()
+        previous = values.get("workspace_connectors") or {}
+        evidence, notices = connector_evidence(body.code, tools, previous, values, at)
+        update = {"workspace_connectors": {"case_id": body.code, "tools": tools, "evidence": evidence}}
+        if notices:
+            update["notifications"] = notices
+        tpa = values.get("connection") or {}
+        if "read_claim" in tools and (not tpa or tpa["case_id"] == body.code or tpa.get("status") != "active"):
+            update["connection"] = {**tpa, "case_id": body.code, "linked_at": tpa.get("linked_at", at), "status": "active"}
+        elif tpa.get("case_id") == body.code and "read_claim" not in tools:
+            update["connection"] = None
+        graph.update_state(config, update, as_node="reply_off_topic")
     return ChatResponse(**refresh(request, body.thread_id))
 
 

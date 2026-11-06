@@ -269,6 +269,7 @@ class AgentState(TypedDict, total=False):
     submission_approval: SubmissionApproval | None
     claim: dict
     connection: Connection | None
+    workspace_connectors: dict
     submission: Submission | None
     notifications: Annotated[list[Notification], merge_by("id")]
     requested_action: dict | None

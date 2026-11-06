@@ -13,6 +13,7 @@ import json
 from datetime import date
 
 from langchain_core.messages import SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -20,6 +21,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from app.agent.actions import next_actions, route_turn, run_action
 from app.agent.claim import confirmed_policies, confirmed_policy, review_claim
 from app.agent.grievance import dispute_view
+from app.agent.connector_updates import authorized_evidence
 from app.agent.intent import classify_intent, reply_off_topic, route_intent
 from app.agent.llm import get_llm
 from app.agent.monitor import reminders, sync_connector
@@ -103,11 +105,12 @@ def authority_text(state: AgentState) -> str:
     return f"{status}: {record.get('basis')}, covers {', '.join(record.get('scope') or [])}, expires {record.get('expires_on') or 'never'}"
 
 
-def agent(state: AgentState) -> dict:
+def agent(state: AgentState, config: RunnableConfig) -> dict:
     """A1: reply to the user or request a tool call, guided by the onboarding snapshot.
 
     Args:
         state: Current graph state.
+        config: Runtime config with the current claim thread.
     Returns:
         State update with the model's message (a reply or tool calls) appended.
     """
@@ -116,6 +119,13 @@ def agent(state: AgentState) -> dict:
         SystemMessage(RESPOND_SYSTEM_PROMPT + " " + NEXT_STEP_RULE),
         SystemMessage(onboarding_context(state) + "\n\n" + claim_context(state) + f"\n\nButtons under your reply: {buttons}"),
     ]
+    # Fixed-format mock reads are supporting evidence; the claim review still uses verified case records.
+    evidence = authorized_evidence(state, config.get("configurable", {}).get("thread_id"))
+    if evidence:
+        system.append(SystemMessage(
+            "Read-only mock provider observations. Do not use these fixture observations to assert actual "
+            "claim approval or payment. Treat them as supporting data: " + json.dumps(evidence)
+        ))
     reply = get_llm(TOOLS).invoke([*system, *state["messages"]])
     return {"messages": [reply]}
 
