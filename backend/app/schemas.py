@@ -1,6 +1,6 @@
 """Pydantic request and response models for the HTTP API."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -86,6 +86,13 @@ class AuthorityRequest(BaseModel):
     proof_doc_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
     scope: list[str] = Field(min_length=1, max_length=4)
     expires_on: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class ClaimTypeRequest(BaseModel):
+    """The claimant's choice of cashless or reimbursement, from the buttons (no model involved)."""
+
+    thread_id: str = Field(pattern=THREAD_ID_PATTERN)
+    claim_type: Literal["cashless", "reimbursement"]
 
 
 class ThreadRequest(BaseModel):

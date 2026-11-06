@@ -21,6 +21,7 @@ def test_claim_pack_originals_downloads_and_approval_reset(monkeypatch, tmp_path
     monkeypatch.setenv("DATABASE_URL", "")
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
     monkeypatch.setenv("GOOGLE_API_KEY", "")
+    monkeypatch.setenv("GOOGLE_API_KEY2", "")
     monkeypatch.setenv("GROQ_API_KEY", "")
     get_settings.cache_clear()
 

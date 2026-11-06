@@ -38,6 +38,7 @@ def get_admin_overview() -> dict:
         cur = conn.cursor()
 
         def fetch_all(table: str, order: str = "rowid DESC") -> list[dict]:
+            """Every row of one mock table (fixed table names from this function only, never user input)."""
             cur.execute(f"SELECT * FROM {table} ORDER BY {order};")
             return [row_to_dict(r) for r in cur.fetchall() if r is not None]
 

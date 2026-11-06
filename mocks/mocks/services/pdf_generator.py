@@ -15,10 +15,12 @@ class MockDocumentPDF(FPDF):
     """Base FPDF class that enforces clear mock notices on every header and footer."""
 
     def __init__(self, doc_title: str):
+        """Start a mock PDF whose header shows doc_title."""
         super().__init__()
         self.doc_title = doc_title
 
     def header(self):
+        """Print the 'mock document' warning and the title at the top of every page."""
         self.set_font("helvetica", "B", 10)
         self.set_text_color(180, 50, 50)
         self.cell(0, 7, "DEMO ARTIFACT - MOCK DOCUMENT - NOT A REAL RECORD", border="B", align="C", new_x="LMARGIN", new_y="NEXT")
@@ -29,6 +31,7 @@ class MockDocumentPDF(FPDF):
         self.ln(2)
 
     def footer(self):
+        """Print the page number and the synthetic-data notice at the foot of every page."""
         self.set_y(-15)
         self.set_font("helvetica", "I", 8)
         self.set_text_color(120, 120, 120)

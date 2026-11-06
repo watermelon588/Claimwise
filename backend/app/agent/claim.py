@@ -180,14 +180,17 @@ def read_query(state: AgentState) -> dict | None:
     """Read the latest query letter and mark requested items that were already provided.
 
     Returns:
-        None if the latest insurer letter is not a query, or the insurer marked it answered (connector
-        records only); else the requested items, each with already_provided = filename of an earlier
-        document of the same type, or None.
+        None if the latest insurer letter is not a query, or it is marked answered (by the insurer through
+        the connector, or by the user); else the requested items, each with already_provided = filename of
+        a document of the same type given before the query arrived, or None.
     """
     letter = _latest_letter(state)
     if not letter or letter["facts"].get("letter_kind") != "query" or letter["facts"].get("query_status") == "answered":
         return None
-    provided = {d["doc_type"]: d for d in parsed_docs(state) if d["id"] != letter["id"]}
+    # Only documents Claimwise had before the query count as "already sent"; later uploads answer it.
+    seen = letter.get("uploaded_at")
+    provided = {d["doc_type"]: d for d in parsed_docs(state) if d["id"] != letter["id"]
+                and not (seen and d.get("uploaded_at") and d["uploaded_at"] >= seen)}
     requested = [
         {**item, "already_provided": (provided.get(item["doc_type"]) or {}).get("filename"),
          "provided_on": ((provided.get(item["doc_type"]) or {}).get("uploaded_at") or "")[:10] or None}

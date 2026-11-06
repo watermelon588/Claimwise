@@ -233,7 +233,11 @@ export function useClaimwise() {
     if (stored.some((t) => t.thread_id === currentId)) return stored
     return [makeThreadEntry(currentId), ...stored]
   })
-  const [loadingThread, setLoadingThread] = useState(false)
+  // A saved session is fetched on mount; show it as loading until then, not as an empty new claim.
+  const [loadingThread, setLoadingThread] = useState(() => {
+    const currentId = getInitialThreadId()
+    return readStoredThreads().some((t) => t.thread_id === currentId)
+  })
 
   const [messages, setMessages] = useState([])
   const [activity, setActivity] = useState('ready')
@@ -322,7 +326,9 @@ export function useClaimwise() {
   // Fetch server-side thread list from checkpointer on initial mount
   useEffect(() => {
     let active = true
-    fetch('/api/threads')
+    // Only this browser's own thread ids: the server never lists other people's claims.
+    const ids = readStoredThreads().map((t) => t.thread_id).slice(0, 25).join(',')
+    fetch(`/api/threads?ids=${encodeURIComponent(ids)}`)
       .then((res) => readBody(res))
       .then(({ data }) => {
         const list = Array.isArray(data) ? data : data?.threads
@@ -367,7 +373,12 @@ export function useClaimwise() {
         return readBody(res)
       })
       .then(({ data }) => {
-        if (!active || !data) return
+        if (!active) return
+        // No saved state (or an error status): stop loading and keep the empty case.
+        if (!data) {
+          setLoadingThread(false)
+          return
+        }
         const storedEntry = readStoredThreads().find((t) => t.thread_id === threadId)
         const restoredAnswers = { ...(data.answers ?? {}), ...(storedEntry?.answers ?? {}) }
         const restoredSkipped = storedEntry?.skipped ?? {}
@@ -507,12 +518,10 @@ export function useClaimwise() {
     }
   }
 
-  /** Send a message with streaming token delivery. Also remembers a claim type stated in plain words. */
+  /** Send a message with streaming token delivery. The claim type shown comes only from what the server saved. */
   async function say(text) {
     if (busy) return
-    const type = text.match(/\b(cashless|reimbursement)\b/i)
-    const nextAnswers = type ? { ...answers, claimType: type[1].toLowerCase() } : answers
-    if (type) setAnswers(nextAnswers)
+    const nextAnswers = answers
 
     setError(null)
     add('user', text)
@@ -673,6 +682,11 @@ export function useClaimwise() {
   const markRead = () => quiet('/api/notifications/read', post(threadId, {}))
   /** Record the caregiver's authority (name, basis, scope, expiry, proof document id). */
   const recordAuthority = (form) => quiet('/api/authority', post(threadId, form))
+  /** Record cashless or reimbursement directly on the server (no model involved), then show the refreshed claim. */
+  async function setClaimType(type) {
+    setAnswers({ ...answers, claimType: type })
+    return quiet('/api/claim-type', post(threadId, { claim_type: type }))
+  }
   /** Record that the patient withdrew consent: work pauses and approvals are cancelled. */
   const withdrawAuthority = () => quiet('/api/authority/withdraw', post(threadId, {}))
 
@@ -704,7 +718,7 @@ export function useClaimwise() {
     reply, answers, skipped,
     error, dismissError,
     say, upload, answer, reviewPack, act, linkConnection, unlinkConnection, markRead, recordAuthority, withdrawAuthority,
-    setClaimType: (type) => say(`This is a ${type} claim.`),
+    setClaimType,
     skip: skipStep,
   }
 }

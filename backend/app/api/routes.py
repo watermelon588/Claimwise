@@ -24,16 +24,17 @@ from app import connector
 from app.agent.actions import action_input, next_actions
 from app.agent.authority import audit, now_iso, validate_authority, withdrawal
 from app.agent.grievance import dispute_view
-from app.agent.onboarding import authority_status
+from app.agent.onboarding import authority_status, correction_error
 from app.agent.prompts import AUTHORITY_WITHDRAWN_NOTE, DUPLICATE_FILE
 from app.agent.llm import LLMNotConfigured
 from app.agent.pack_export import approval_status, pack_email, pack_pdf
 from app.agent.claim import build_submission_pack, confirmed_policies, confirmed_policy, submission_blockers
 from app.config import get_settings
 from app.db import ping
+from app.observability import run_config
 from app.schemas import (
-    THREAD_ID_PATTERN, ActionRequest, AuthorityRequest, ChatRequest, ChatResponse, ConnectionRequest, HealthResponse,
-    ResumeRequest, ThreadRequest,
+    THREAD_ID_PATTERN, ActionRequest, AuthorityRequest, ChatRequest, ChatResponse, ClaimTypeRequest, ConnectionRequest,
+    HealthResponse, ResumeRequest, ThreadRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -139,23 +140,23 @@ def household(values: dict) -> dict | None:
     }
 
 
-def run_graph(request: Request, thread_id: str, graph_input) -> ChatResponse:
+def run_graph(request: Request, thread_id: str, graph_input, route: str) -> ChatResponse:
     """Invoke the agent graph for one thread and shape the API response.
 
     Args:
         request: Incoming request (holds the compiled graph).
         thread_id: Conversation id; selects the saved state.
         graph_input: New state input, or a Command(resume=...) for a paused run.
+        route: Which API route started the run (for tracing).
     Returns:
         ChatResponse with the reply, any pending confirmation, reviews, buttons and notices.
     Raises:
         HTTPException 503: no LLM key configured.
         HTTPException 500: unexpected graph or checkpointer failure (returned as JSON).
     """
-    config = {"configurable": {"thread_id": thread_id}}
     try:
         with thread_lock(thread_id):
-            result = request.app.state.graph.invoke(graph_input, config)
+            result = request.app.state.graph.invoke(graph_input, run_config(thread_id, route))
     except LLMNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except HTTPException:
@@ -180,7 +181,7 @@ def refresh(request: Request, thread_id: str) -> dict:
     with thread_lock(thread_id):
         snapshot = graph.get_state(config)
         if snapshot.values and not snapshot.next and not snapshot.interrupts:
-            graph.invoke({"requested_action": None}, config)
+            graph.invoke({"requested_action": None}, run_config(thread_id, "refresh"))
             snapshot = graph.get_state(config)
     return shape(request, thread_id, snapshot.values or {}, snapshot.interrupts, with_history=True)
 
@@ -198,7 +199,7 @@ def health(request: Request) -> HealthResponse:
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest, request: Request) -> ChatResponse:
     """Send one message to the agent; state persists per thread_id."""
-    return run_graph(request, body.thread_id, {"messages": [HumanMessage(body.message)]})
+    return run_graph(request, body.thread_id, {"messages": [HumanMessage(body.message)]}, "chat")
 
 
 @router.post("/chat/stream")
@@ -218,7 +219,7 @@ def chat_stream(body: ChatRequest, request: Request):
         try:
             for mode, event in graph.stream(
                 {"messages": [HumanMessage(body.message)]},
-                config,
+                run_config(body.thread_id, "stream"),
                 stream_mode=["messages", "tasks"],
             ):
                 if mode == "tasks":
@@ -299,7 +300,7 @@ def upload_document(request: Request, thread_id: str = Form(...), file: UploadFi
     }
     return run_graph(request, thread_id, {
         "documents": [doc], "messages": [HumanMessage(UPLOAD_PREFIX + filename, name="upload")],
-    })
+    }, "upload")
 
 
 @router.post("/resume", response_model=ChatResponse)
@@ -319,8 +320,13 @@ def resume(body: ResumeRequest, request: Request) -> ChatResponse:
         ) from exc
     if not snapshot.interrupts:
         raise HTTPException(status_code=409, detail="Nothing is waiting for confirmation on this thread")
+    card = snapshot.interrupts[0].value or {}
+    # Validate policy corrections here, at the trust boundary, so a bad value never reaches the paused run.
+    error = correction_error(card["policy"], body.corrections) if card.get("type") == "confirm_policy" and body.approved else None
+    if error:
+        raise HTTPException(status_code=422, detail=error)
     answer = {"approved": body.approved, "corrections": body.corrections}
-    return run_graph(request, body.thread_id, Command(resume=answer))
+    return run_graph(request, body.thread_id, Command(resume=answer), "resume")
 
 
 def checked_thread(thread_id: str) -> str:
@@ -352,21 +358,18 @@ def write_state(request: Request, thread_id: str, update: dict) -> None:
 
 
 @router.get("/threads")
-def list_threads(request: Request) -> list[dict]:
-    """List saved conversation threads from the checkpointer with summary metadata for the history sidebar."""
-    pool = getattr(request.app.state, "db_pool", None)
+def list_threads(request: Request, ids: str = "") -> list[dict]:
+    """Summaries for the history sidebar, only for the thread ids this browser already holds.
+
+    There is no user login yet (TBD), so the server never lists every claim in the database: a thread id is
+    the only key to a claim, and only its holder can ask for it.
+
+    Args:
+        ids: Comma-separated thread ids (at most 25); invalid ids are skipped.
+    """
     graph = request.app.state.graph
-    thread_ids: list[str] = []
-    if pool is not None:
-        try:
-            with pool.connection() as conn:
-                rows = conn.execute(
-                    "SELECT thread_id, MAX(checkpoint_id) AS latest "
-                    "FROM checkpoints GROUP BY thread_id ORDER BY latest DESC LIMIT 25"
-                ).fetchall()
-                thread_ids = [r[0] for r in rows if r and r[0] and re.fullmatch(THREAD_ID_PATTERN, str(r[0]))]
-        except Exception:
-            logger.exception("Could not query thread list from database")
+    thread_ids = [t for t in dict.fromkeys(ids.split(","))
+                  if re.fullmatch(THREAD_ID_PATTERN, t)][:25]
     summaries = []
     for tid in thread_ids:
         try:
@@ -440,7 +443,7 @@ def press_action(body: ActionRequest, request: Request) -> ChatResponse:
     graph_input = action_input(body.action, body.data)
     if graph_input is None:
         raise HTTPException(status_code=422, detail="This button works in the browser.")
-    return run_graph(request, body.thread_id, graph_input)
+    return run_graph(request, body.thread_id, graph_input, f"action:{body.action}")
 
 
 @router.post("/connection", response_model=ChatResponse)
@@ -468,6 +471,24 @@ def link_connection(body: ConnectionRequest, request: Request) -> ChatResponse:
 def unlink_connection(body: ThreadRequest, request: Request) -> ChatResponse:
     """Forget the connected account for this claim. Consent itself is revoked on the connector page."""
     write_state(request, body.thread_id, {"connection": None})
+    return ChatResponse(**refresh(request, body.thread_id))
+
+
+@router.post("/claim-type", response_model=ChatResponse)
+def set_claim_type(body: ClaimTypeRequest, request: Request) -> ChatResponse:
+    """Record cashless or reimbursement from the buttons, without relying on the model to call a tool.
+
+    A change before submission makes any pack approval stale (C1 flags it); after submission it is refused.
+
+    Raises:
+        HTTPException 409: the claim was already submitted with another type.
+    """
+    values = snapshot_of(request, body.thread_id).values or {}
+    info = values.get("claim_info") or {}
+    if info.get("submitted_on") and info.get("claim_type") not in (None, body.claim_type):
+        raise HTTPException(status_code=409, detail=f"The claim was already submitted as {info['claim_type']}.")
+    write_state(request, body.thread_id, {"claim_info": {"claim_type": body.claim_type},
+                                          "audit": [audit(values, "set_claim_type", f"Claim type: {body.claim_type}")]})
     return ChatResponse(**refresh(request, body.thread_id))
 
 

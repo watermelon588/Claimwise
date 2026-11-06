@@ -80,3 +80,9 @@ def find_claims(case_id: str, client_reference: str) -> list[dict]:
 def read_claim(case_id: str, claim_id: str) -> dict:
     """Status, queries, decision and payments of one submitted claim."""
     return _call("GET", _case(case_id) + "/claims/" + urllib.parse.quote(claim_id, safe=""))["data"]
+
+
+def answer_query(case_id: str, claim_id: str, documents: list[dict]) -> dict:
+    """Write: send the documents that answer the open query on a submitted claim (metadata only)."""
+    path = _case(case_id) + "/claims/" + urllib.parse.quote(claim_id, safe="") + "/documents"
+    return _call("POST", path, {"documents": documents})["data"]

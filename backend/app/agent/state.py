@@ -19,6 +19,7 @@ def merge_by(key: str):
     """
 
     def reducer(old: list[dict] | None, new: list[dict] | None) -> list[dict]:
+        """Upsert: records in new replace same-key records in old; the rest keep their order."""
         merged = {item[key]: item for item in old or []}
         merged.update({item[key]: item for item in new or []})
         return list(merged.values())
@@ -223,13 +224,17 @@ class Dispute(TypedDict, total=False):
 
 
 class Notification(TypedDict):
-    """One in-app notice: an insurer update, a reminder, or a warning. Ids are deterministic, so no duplicates."""
+    """One in-app notice: an insurer update, a reminder, or a warning. Ids are deterministic, so no duplicates.
+
+    resolved: a reminder whose condition passed (kept for history, no longer asks the user to act).
+    """
 
     id: str
     at: str
     kind: Literal["update", "reminder", "warning"]
     text: str
     read: bool
+    resolved: NotRequired[bool]
 
 
 class AgentState(TypedDict, total=False):

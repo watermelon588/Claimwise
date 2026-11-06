@@ -98,15 +98,20 @@ def note_for(doc: dict) -> str:
 
 
 def reminders(state: AgentState, today: date) -> list[dict]:
-    """Date-based reminders that are due and not raised before (ids are deterministic, so each shows once)."""
+    """Date-based reminders: new ones that are due, and earlier ones that are no longer due, marked resolved.
+
+    Ids are deterministic, so each reminder shows once. A resolved reminder stays in the log (read, resolved)
+    so the history is kept, but it no longer asks the user to act.
+    """
     info, sub = state.get("claim_info") or {}, state.get("submission") or {}
-    seen = {n["id"] for n in state.get("notifications", [])}
+    notes = {n["id"]: n for n in state.get("notifications", [])}
     at = now_iso()
-    out = []
+    out, due_ids = [], set()
 
     def add(note_id: str, kind: str, text: str) -> None:
-        """Queue one reminder unless it was already raised."""
-        if note_id not in seen:
+        """Mark one reminder as due, and queue it unless it was already raised."""
+        due_ids.add(note_id)
+        if note_id not in notes:
             out.append({"id": note_id, "at": at, "kind": kind, "text": text, "read": False})
 
     try:
@@ -156,6 +161,9 @@ def reminders(state: AgentState, today: date) -> list[dict]:
             and date.fromisoformat(expires) <= today + timedelta(AUTHORITY_WARN_DAYS):
         patient = (state.get("user_role") or {}).get("patient_name") or "the patient"
         add(f"rem-authority-{expires}", "reminder", REMIND_AUTHORITY_EXPIRY.format(patient=patient, date=expires))
+    # Reminders whose condition passed (a decision arrived, the query was answered, the authority was renewed).
+    out += [{**n, "read": True, "resolved": True} for nid, n in notes.items()
+            if nid.startswith("rem-") and nid not in due_ids and not n.get("resolved")]
     return out
 
 
@@ -184,7 +192,10 @@ def sync_connector(state: AgentState, today: date | None = None) -> dict:
                 notes.append({"id": f"conn-expired-{conn['case_id']}", "at": at, "kind": "warning",
                               "text": NOTE_CONNECTION_EXPIRED, "read": False})
         else:
-            fresh = [d for d in claim_documents(snapshot) if docs.get(d["id"]) != d]
+            # uploaded_at = when Claimwise first saw the record, so later uploads count as answers to a query.
+            seen = [{**d, "uploaded_at": (docs.get(d["id"]) or {}).get("uploaded_at") or at}
+                    for d in claim_documents(snapshot)]
+            fresh = [d for d in seen if docs.get(d["id"]) != d]
             if fresh:
                 update["documents"] = fresh
             notes += [{"id": f"note-{d['id']}", "at": at, "kind": "update", "text": note_for(d), "read": False}

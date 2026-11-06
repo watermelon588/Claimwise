@@ -146,6 +146,7 @@ function paymentDetail(p) {
   if (p.status === 'paid_to_hospital') return 'Paid to the hospital (cashless)'
   if (p.status === 'none_due') return 'Nothing to pay: claim rejected'
   if (p.status === 'mismatch') return 'Does not match, see Needs you'
+  if (p.status === 'top_up_due') return `${money(p.top_up)} more due after the revised decision`
   return p.reported ? 'Insurer says paid, bank not checked' : 'Waiting for the money'
 }
 

@@ -137,6 +137,13 @@ class ClaimSubmission(BaseModel):
     documents: list[SubmissionDocument] = Field(default_factory=list, max_length=50)
 
 
+class QueryAnswer(BaseModel):
+    """Documents that answer the open insurer query on a claim (metadata only, like a submission)."""
+
+    model_config = ConfigDict(extra="forbid")
+    documents: list[SubmissionDocument] = Field(min_length=1, max_length=20)
+
+
 # Payer refusals that are safe to pass on by code, because the claimant can act on them.
 PAYER_REFUSALS = {"POLICY_NOT_FOUND", "MEMBER_NOT_COVERED", "NOT_AUTHORISED_REPRESENTATIVE"}
 
@@ -320,3 +327,26 @@ async def read_submitted_claim(client: httpx.AsyncClient, claim_id: str) -> dict
         return SubmittedClaim.model_validate_json(response.content).model_dump()
     except ValidationError as exc:
         raise ProviderError(502, "INVALID_PROVIDER_RESPONSE") from exc
+
+
+async def answer_query(client: httpx.AsyncClient, claim_id: str, answer: QueryAnswer, api_key: str) -> dict:
+    """Send the documents that answer the open query on one claim.
+
+    Raises:
+        ProviderError: 404 when the claim is unknown; 409 QUERY_NOT_OPEN when the payer has no open query
+        (already answered or decided); 502 PROVIDER_ANSWER_UNCONFIRMED when the outcome is unclear (read the
+        claim before sending again); 503 or 504 when the payer could not be reached.
+    """
+    response = await call_payer(client, "POST", f"/payer/claims/{claim_id}/documents", body=answer.model_dump(),
+                                headers={"X-Api-Key": api_key})
+    if response.status_code == 200:
+        try:
+            data = response.json()
+            return {"claim_id": data["claim_id"], "status": data["status"]}
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ProviderError(502, "INVALID_PROVIDER_RESPONSE") from exc
+    if response.status_code == 404:
+        raise ProviderError(404, "PROVIDER_RECORD_NOT_FOUND")
+    if response.status_code == 409:
+        raise ProviderError(409, "QUERY_NOT_OPEN")
+    raise ProviderError(502, "PROVIDER_ANSWER_UNCONFIRMED")

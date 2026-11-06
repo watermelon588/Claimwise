@@ -195,7 +195,9 @@ def test_reminders_fire_once_by_date():
              "doc_type": "insurer_letter", "error": None,
              "facts": {"letter_kind": "query", "due_on": "2026-10-22", "query_status": "open", "requested_documents": []}}
     soon = reminders({**state, "documents": [*state["documents"], query], "notifications": notes}, date(2026, 10, 20))
-    assert [n["id"] for n in soon] == ["rem-q-soon"]
+    # The open query stops the settlement clock, so the earlier overdue warning is resolved, not left active.
+    assert [n["id"] for n in soon] == ["rem-q-soon", "rem-overdue-2026-10-01"]
+    assert soon[1]["resolved"] and soon[1]["read"]
     # An open query stops the settlement clock: no overdue warning, only the query reminder.
     assert [n["id"] for n in reminders({**state, "documents": [*state["documents"], query]}, date(2026, 10, 20))] == ["rem-q-soon"]
     late = reminders({**state, "documents": [*state["documents"], query]}, date(2026, 10, 25))

@@ -14,6 +14,7 @@ def test_health_and_chat_without_llm_key(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.setenv("GROQ_API_KEY", "")
     monkeypatch.setenv("GOOGLE_API_KEY", "")
+    monkeypatch.setenv("GOOGLE_API_KEY2", "")
     from app.config import get_settings
 
     get_settings.cache_clear()  # re-read env set above
@@ -33,6 +34,7 @@ def test_chat_stream_without_llm_key(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.setenv("GROQ_API_KEY", "")
     monkeypatch.setenv("GOOGLE_API_KEY", "")
+    monkeypatch.setenv("GOOGLE_API_KEY2", "")
     from app.config import get_settings
 
     get_settings.cache_clear()

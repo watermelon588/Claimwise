@@ -16,7 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .providers import (
-    ClaimSubmission, ProviderError, TOOLS, fetch_tool, find_claims, read_submitted_claim, submit_claim,
+    ClaimSubmission, ProviderError, QueryAnswer, TOOLS, answer_query, fetch_tool, find_claims, read_submitted_claim,
+    submit_claim,
 )
 
 SESSION_COOKIE = "claimwise_connector_demo"
@@ -276,6 +277,18 @@ def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport
             raise fail(exc.status, exc.code) from exc
         still_granted(case_id, grant)
         return sourced("read_submitted_claim", data)
+
+    @gateway.post("/agent/cases/{case_id}/claims/{claim_id}/documents")
+    async def answer(case_id: str, body: QueryAnswer, request: Request, claim_id: str = PathParam(pattern=CLAIM_ID)):
+        """Write tool: send the documents answering an open query, after the user approved the list in Claimwise."""
+        grant = claims_grant(request, case_id)
+        api_key = os.environ.get("CLAIMWISE_MOCK_API_KEY", "claimwise-demo-key")
+        try:
+            data = await answer_query(request.app.state.provider_client, claim_id, body, api_key)
+        except ProviderError as exc:
+            raise fail(exc.status, exc.code) from exc
+        still_granted(case_id, grant)
+        return sourced("answer_query", data)
 
     @gateway.get("/agent/cases/{case_id}/tools/{name}")
     async def invoke(case_id: str, name: str, request: Request):

@@ -16,8 +16,11 @@ from langgraph.graph import END
 from langgraph.types import interrupt
 
 from app.agent.authority import audit, now_iso
+from app import connector
+from app.agent.authority import authority_issues
 from app.agent.claim import (
-    confirmed_policies, confirmed_policy, covers, read_decision, read_query, submission_blockers,
+    NOT_IN_PACK, confirmed_policies, confirmed_policy, covers, parsed_docs, read_decision, read_query,
+    submission_blockers,
 )
 from app.agent.grievance import GRIEVANCE_DAYS, dispute_view, letter, ombudsman_check
 from app.agent.prompts import (
@@ -26,11 +29,15 @@ from app.agent.prompts import (
     GRIEVANCE_FILED_REPLY, GRIEVANCE_SCOPE_REPLY, LETTER_APPROVED_REPLY, LETTER_NOT_APPROVED_REPLY, NO_BALANCE_REPLY,
     NO_DISPUTE_REPLY, NOT_ELIGIBLE_REPLY, NOTHING_ALREADY_SENT_REPLY, NOTHING_NEW, NOTHING_YET_REPLY,
     OMBUDSMAN_FILED_REPLY, PACK_APPROVED_REPLY, PACK_BLOCKED_REPLY, PACK_NOT_APPROVED_REPLY, POLICY_CHOSEN_REPLY,
-    POLICY_NOT_FOR_PATIENT, ROUTE_CONNECTOR, ROUTE_MANUAL, STALE_CHOICE_REPLY, UNCONFIRMED_REPLY,
-    VERSION_KEPT_REPLY, VERSION_REPLACED_REPLY,
+    POLICY_NOT_FOR_PATIENT, ROUTE_CONNECTOR, ROUTE_MANUAL, STALE_CHOICE_REPLY, UNCONFIRMED_REPLY, NOT_AT_PAYER_REPLY,
+    VERSION_KEPT_REPLY, VERSION_REPLACED_REPLY, BAD_QUERY_DATE_REPLY, NOTE_CONNECTION_EXPIRED, QUERY_ANSWERED_REPLY,
+    QUERY_NOT_OPEN_REPLY, QUERY_REPLY_LETTER, QUERY_REPLY_LINE, QUERY_SEND_UNCLEAR_REPLY, QUERY_SENT_REPLY,
 )
 from app.agent.state import AgentState
-from app.agent.submission import PROVIDER, due_date, reconcile, record_manual, submit_via_connector
+from app.agent.submission import (
+    SETTLE_DAYS, connection_lost, due_date, not_at_payer, provider_name, reconcile, record_manual,
+    submit_via_connector,
+)
 from app.agent.tools import request_pack_approval
 from app.config import get_settings
 
@@ -64,13 +71,15 @@ LABELS = {
     "grievance_sent": "I sent the grievance",
     "draft_ombudsman": "Draft the Ombudsman complaint",
     "ombudsman_sent": "I filed with the Ombudsman",
+    "send_query_reply": "Send the documents to the insurer",
+    "query_answered": "I sent what they asked for",
     "other": "Something else",
 }
 # Presses that run in X1 without the model; the button id is stored in requested_action.
 DETERMINISTIC = {"prepare_pack", "review_pack", "submit_connector", "retry_submit", "check_submission",
                  "submitted_manually", "check_updates", "nothing_yet", "replace_version", "keep_version",
                  "draft_already_sent", "choose_policy", "start_balance_claim", "draft_grievance", "grievance_sent",
-                 "draft_ombudsman", "ombudsman_sent"}
+                 "draft_ombudsman", "ombudsman_sent", "send_query_reply", "query_answered"}
 # Block issues that a button answers directly, so they do not also ask for a corrected upload.
 CHOICE_CODES = {"version_choice", "choose_policy", "authority_withdrawn", "authority_expired", "authority_scope"}
 DECIDED_STAGES = ("decided", "payment_reported", "payment_mismatch", "payment_verified")
@@ -135,6 +144,7 @@ def next_actions(state: AgentState) -> list[dict]:
         out += [_button("upload_requested", "upload"), _button("explain_query")]
         if any(i["code"] == "repeated_request" for i in claim["issues"]):
             out.append(_button("draft_already_sent"))
+        out += query_buttons(state, connected)
         if sub.get("route") == "connector" and connected:
             out.append(_button("check_updates"))
     elif stage == "decided":
@@ -192,6 +202,39 @@ def balance_policies(state: AgentState) -> list[dict]:
     return [p for p in confirmed_policies(state) if covers(p, patient) and p["doc_id"] not in used]
 
 
+def query_documents(state: AgentState) -> tuple[list[dict], list[str]]:
+    """The documents that answer the open query (latest of each requested type) and the items still missing.
+
+    An item that maps to no known type is answered by any claim document uploaded after the query arrived.
+    """
+    query = read_query(state)
+    letter = _doc(state, (query or {}).get("letter_doc_id")) or {}
+    later = [d for d in parsed_docs(state) if d["doc_type"] not in NOT_IN_PACK
+             and (d.get("uploaded_at") or "") > (letter.get("uploaded_at") or "")]
+    docs, missing = {}, []
+    for item in (query or {}).get("requested", []):
+        found = parsed_docs(state, item["doc_type"]) if item["doc_type"] != "other" else later
+        if found:
+            docs[found[-1]["id"]] = {**found[-1], "label": item["label"]}
+        else:
+            missing.append(item["label"])
+    return list(docs.values()), missing
+
+
+def query_buttons(state: AgentState, connected: bool) -> list[dict]:
+    """Answer the open query: send through the connected account (connector queries), or record that the user did."""
+    query = read_query(state)
+    letter = _doc(state, (query or {}).get("letter_doc_id"))
+    if not letter:
+        return []
+    if letter.get("source") != "connector":
+        return [_button("query_answered", "form", form="dated")]
+    docs, missing = query_documents(state)
+    if not connected or missing or not docs or (state.get("submission") or {}).get("route") != "connector":
+        return []
+    return [_button("send_query_reply", label=f"Send {len(docs)} document(s) to the insurer")]
+
+
 def dispute_buttons(state: AgentState) -> list[dict]:
     """The one next dispute step: draft the grievance, record it, draft the Ombudsman complaint, record it (DEV-026)."""
     view = dispute_view(state)
@@ -239,7 +282,7 @@ def _prepare(state: AgentState, data: dict, thread_id: str) -> tuple[dict, str]:
     if outcome == "declined":
         return {}, PACK_NOT_APPROVED_REPLY
     connected = (state.get("connection") or {}).get("status") == "active"
-    route = ROUTE_CONNECTOR.format(provider=PROVIDER) if connected else ROUTE_MANUAL
+    route = ROUTE_CONNECTOR.format(provider=provider_name(state)) if connected else ROUTE_MANUAL
     return {"submission_approval": result}, PACK_APPROVED_REPLY.format(route=route)
 
 
@@ -251,6 +294,9 @@ def _check_submission(state: AgentState, data: dict, thread_id: str) -> tuple[di
     sub = state.get("submission") or {}
     if sub.get("status") == "submitted":
         return {}, ALREADY_SUBMITTED_REPLY.format(date=(sub.get("submitted_at") or "")[:10], claim_id=sub.get("claim_id"))
+    # The payer answered and does not have it: say so and point to the retry, instead of "check again later".
+    if not_at_payer(state):
+        return {"submission": {**sub, "error": "NOT_AT_PAYER"}}, NOT_AT_PAYER_REPLY.format(provider=provider_name(state))
     return {}, UNCONFIRMED_REPLY
 
 
@@ -398,6 +444,53 @@ def _draft_ombudsman(state: AgentState, data: dict, thread_id: str) -> tuple[dic
                         "ombudsman_ref": ""}}, f"{LETTER_APPROVED_REPLY['ombudsman']}\n\n{text}"
 
 
+def _send_query_reply(state: AgentState, data: dict, thread_id: str) -> tuple[dict, str]:
+    """Send the documents the insurer asked for through the connected account, after the user approves the list."""
+    blocked = authority_issues(state)
+    if blocked:  # a withdrawn, expired or too narrow authority stops every write to the insurer (DEV-025)
+        return {}, blocked[0][1]
+    query, sub, conn = read_query(state), state.get("submission") or {}, state.get("connection") or {}
+    docs, missing = query_documents(state)
+    if not query or missing or not docs or conn.get("status") != "active" or not sub.get("claim_id"):
+        return {}, STALE_CHOICE_REPLY
+    claim_number = (state.get("claim_info") or {}).get("claim_number") or sub["claim_id"]
+    lines = "\n".join(QUERY_REPLY_LINE.format(label=d["label"], filename=d["filename"]) for d in docs)
+    text = QUERY_REPLY_LETTER.format(letter_date=query.get("letter_date") or "", claim_number=claim_number, lines=lines)
+    # Pause for approval: nothing goes to the insurer until the user approves this exact list.
+    answer = interrupt({"type": "approve_letter", "kind": "query_reply", "question": APPROVE_LETTER_QUESTION["query_reply"],
+                        "letter": text})
+    if not answer.get("approved"):
+        return {}, LETTER_NOT_APPROVED_REPLY
+    try:
+        connector.answer_query(conn["case_id"], sub["claim_id"], [
+            {"id": d["id"][:64], "filename": d["filename"][:200], "doc_type": d["doc_type"]} for d in docs])
+    except connector.ConnectorError as exc:
+        if exc.status in (401, 403):
+            return connection_lost(state, exc.code)[0], NOTE_CONNECTION_EXPIRED
+        return {}, QUERY_NOT_OPEN_REPLY if exc.code == "QUERY_NOT_OPEN" else QUERY_SEND_UNCLEAR_REPLY
+    today = date.today().isoformat()
+    letter = _doc(state, query["letter_doc_id"])
+    answered = {**letter, "facts": {**letter["facts"], "query_status": "answered", "answered_on": today}}
+    return {"documents": [answered]}, QUERY_SENT_REPLY.format(count=len(docs), provider=provider_name(state),
+                                                              days=SETTLE_DAYS, due=due_date(today))
+
+
+def _query_answered(state: AgentState, data: dict, thread_id: str) -> tuple[dict, str]:
+    """Record the date the user sent the insurer what its uploaded query letter asked for."""
+    query = read_query(state)
+    letter = _doc(state, (query or {}).get("letter_doc_id"))
+    if not letter:
+        return {}, STALE_CHOICE_REPLY
+    try:
+        day = date.fromisoformat(str(data.get("date", "")))
+    except ValueError:
+        return {}, BAD_QUERY_DATE_REPLY
+    if day > date.today() or day.isoformat() < (query.get("letter_date") or "")[:10]:
+        return {}, BAD_QUERY_DATE_REPLY
+    answered = {**letter, "facts": {**letter["facts"], "query_status": "answered", "answered_on": day.isoformat()}}
+    return {"documents": [answered]}, QUERY_ANSWERED_REPLY.format(date=day.isoformat(), due=due_date(day.isoformat()))
+
+
 def _sent_on(state: AgentState, data: dict, today: date | None = None) -> tuple[str, str] | None:
     """Validated (date, reference) from the 'I sent it' form: not before the decision, not in the future."""
     today = today or date.today()
@@ -451,6 +544,8 @@ HANDLERS = {
     "grievance_sent": _grievance_sent,
     "draft_ombudsman": _draft_ombudsman,
     "ombudsman_sent": _ombudsman_sent,
+    "send_query_reply": _send_query_reply,
+    "query_answered": _query_answered,
 }
 
 
