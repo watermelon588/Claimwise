@@ -89,6 +89,7 @@ CLAIM_CONTEXT_TEMPLATE = """Claim review (computed by the system from documents,
 
 Rules for claim work (only after onboarding is complete):
 - If claim_type is unknown, ask whether this is a cashless or reimbursement claim, then call update_claim.
+- Never say you saved, noted or recorded a fact unless you called the tool for it in this turn.
 - Ask for missing required documents first (upload, never typed), then mention recommended ones once.
 - Explain each issue in plain words. Blocking issues must be fixed (usually a corrected document from the hospital)
   before the claim can be prepared. Never suggest changing facts on a document to get a claim paid.
@@ -207,6 +208,10 @@ ALREADY_SUBMITTED_REPLY = "This pack was already submitted on {date}. Claim numb
 SUBMITTED_REPLY = (
     "Submitted to {provider} on {date}. Claim number: {claim_id}. I will check for updates every time you open "
     "Claimwise. The insurer should settle within 15 days of the last document they need (by {due})."
+)
+NOT_AT_PAYER_REPLY = (
+    "{provider} answered and has no record of this claim, so it did not arrive. Press 'Try submitting again' to "
+    "send it. It uses the same reference, so it cannot be submitted twice."
 )
 UNCONFIRMED_REPLY = (
     "I sent the claim but could not confirm that the insurer received it. I will check with the insurer before "
@@ -330,6 +335,7 @@ OMBUDSMAN_NO_REPLY = "The insurer has not replied."
 APPROVE_LETTER_QUESTION = {
     "grievance": "Here is the grievance letter, written from the decision. Check it. Nothing is sent until you approve, and you send it yourself.",
     "ombudsman": "Here is the Ombudsman complaint, written from the decision and your grievance. Check it before you file it.",
+    "query_reply": "These documents go to the insurer as your answer to its query. Nothing is sent until you approve.",
 }
 LETTER_APPROVED_REPLY = {
     "grievance": (
@@ -368,3 +374,23 @@ NOTHING_ALREADY_SENT_REPLY = "Nothing in the insurer's latest request matches a 
 NO_BALANCE_REPLY = "A balance claim is not possible on that policy: it must cover the patient and not be claimed on already."
 GRIEVANCE_SCOPE_REPLY = "Your recorded authority does not cover filing a grievance. Update it, or the patient files it."
 BAD_DISPUTE_DATE_REPLY = "That date does not look right. Use the date you actually sent it: not before the decision, not in the future."
+
+# Answering an insurer query (session 037): through the connected account, or recorded after the user sent it.
+QUERY_REPLY_LETTER = """Answer to the insurer's query of {letter_date} on claim {claim_number}.
+
+Documents sent:
+{lines}"""
+QUERY_REPLY_LINE = "- {label}: {filename}"
+QUERY_SENT_REPLY = (
+    "Sent {count} document(s) to {provider} as your answer to the query. The insurer has {days} days from today to "
+    "settle (by {due}). I will keep checking for its decision."
+)
+QUERY_ANSWERED_REPLY = (
+    "Recorded: you answered the insurer's query on {date}. The 15 days to settle run again from that date (by {due})."
+)
+BAD_QUERY_DATE_REPLY = "That date does not look right. Use the date you sent the documents: not before the query, not in the future."
+QUERY_NOT_OPEN_REPLY = "The insurer has no open query on this claim any more. Press 'Check for updates' to see where it stands."
+QUERY_SEND_UNCLEAR_REPLY = (
+    "I could not confirm the insurer received the documents. Nothing is lost: press 'Check for updates' first; "
+    "if the query is still open, send again."
+)

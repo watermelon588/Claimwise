@@ -1,0 +1,33 @@
+{
+ "run": "restart",
+ "date": "2026-11-06",
+ "seconds": 0,
+ "journeys": {
+  "J13": "Backend restart: paused card and finished claims persist (Postgres checkpoints)"
+ },
+ "specs": {},
+ "checks": [
+  {
+   "journey": "J13",
+   "spec": "V-34",
+   "check": "qa037-j5-45121: same stage, card, documents, submission and dispute after a backend restart",
+   "ok": true,
+   "detail": "{\"stage\": \"query_raised\", \"pending\": \"approve_submission\", \"docs\": 5, \"sub\": \"submitted\", \"dispute\": null}"
+  },
+  {
+   "journey": "J13",
+   "spec": "V-34",
+   "check": "qa037-j1-10361: same stage, card, documents, submission and dispute after a backend restart",
+   "ok": true,
+   "detail": "{\"stage\": \"payment_verified\", \"pending\": null, \"docs\": 7, \"sub\": \"submitted\", \"dispute\": \"open\"}"
+  },
+  {
+   "journey": "J13",
+   "spec": "V-34",
+   "check": "qa037-j2-10361: same stage, card, documents, submission and dispute after a backend restart",
+   "ok": true,
+   "detail": "{\"stage\": \"payment_reported\", \"pending\": null, \"docs\": 9, \"sub\": \"submitted\", \"dispute\": \"revised\"}"
+  }
+ ],
+ "calls": []
+}

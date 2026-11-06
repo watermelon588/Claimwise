@@ -19,7 +19,9 @@ from app.agent.tools import RULES
 SETTLE_DAYS = RULES["claim_submitted"][0][0]  # 15 days, IRDAI 2024 (P-04)
 # ponytail: fixed 30-day search window after the payment or decision date; widen if real statements lag.
 CREDIT_WINDOW_DAYS = 30
-STAGE_FOR = {"reported": "payment_reported", "verified": "payment_verified", "mismatch": "payment_mismatch"}
+# top_up_due: the insurer paid in full for an earlier decision and owes the rest of a revised one (DEV-026).
+STAGE_FOR = {"reported": "payment_reported", "verified": "payment_verified", "mismatch": "payment_mismatch",
+             "top_up_due": "payment_reported"}
 BANK_TRACE = (
     "If the insurer confirms the transfer went to the right account, ask your bank to trace the UTR. "
     "Raise a written complaint with the bank first if the problem is on its side. "
@@ -130,6 +132,20 @@ def available_credits(credits: list[dict], earlier: list[dict]) -> list[dict]:
     return available
 
 
+def top_up_due(decision: dict | None, reports: list[dict]) -> int:
+    """Rupees still owed when the decision was revised upward after every payment so far; 0 otherwise.
+
+    A payment made before the revised decision was right for the decision of its day, so the gap is a top-up
+    the insurer still owes, not a short payment or a bank error.
+    """
+    decided = _day((decision or {}).get("letter_date"))
+    approved = (decision or {}).get("approved")
+    paid_days = [_day(r["date"]) for r in reports]
+    if approved is None or not decided or not reports or any(d is None or d >= decided for d in paid_days)             or any(r["amount"] is None for r in reports):
+        return 0
+    return max(approved - sum(r["amount"] for r in reports), 0)
+
+
 def settlement_timing(info: dict, report: dict | None, today: date) -> dict | None:
     """Check the 15-day settlement rule from the user-stated submission date.
 
@@ -164,7 +180,8 @@ def check_payment(state: AgentState, today: date | None = None) -> tuple[dict, l
     Returns:
         (payment summary with status, list of issues). Status is none_due (rejected), paid_to_hospital
         (cashless), awaiting (nothing reported or credited yet), reported (insurer says paid, no
-        statement to check), verified, or mismatch.
+        statement to check), top_up_due (a revised decision raised the amount after payment), verified,
+        or mismatch.
     """
     decision = state["claim"]["decision"]
     info = state.get("claim_info") or {}
@@ -172,7 +189,9 @@ def check_payment(state: AgentState, today: date | None = None) -> tuple[dict, l
     report = reports[-1] if reports else None
     approved = (decision or {}).get("approved")
     expected = report["amount"] if report and report["amount"] is not None else approved
-    payment = {"approved": approved, "expected": expected, "reported": report, "credit": None, "match": None}
+    top_up = top_up_due(decision, reports)
+    payment = {"approved": approved, "expected": expected, "reported": report, "credit": None, "match": None,
+               "top_up": top_up or None}
     issues = []
 
     if not decision and not report:
@@ -190,7 +209,11 @@ def check_payment(state: AgentState, today: date | None = None) -> tuple[dict, l
 
     late = settlement_timing(info, report, today or date.today())
     issues += [late] if late else []
-    if report and approved is not None and report["amount"] is not None and report["amount"] < approved:
+    if top_up:
+        issues.append(_issue("top_up_due", "warn",
+            f"The insurer revised its decision on {decision['letter_date']} to Rs {approved}. Rs {approved - top_up} "
+            f"was paid before that, so Rs {top_up} more is due. Upload your bank statement once it arrives."))
+    elif report and approved is not None and report["amount"] is not None and report["amount"] < approved:
         issues.append(_issue("short_payment", "warn",
             f"The insurer approved Rs {approved} but the settlement letter says Rs {report['amount']} was paid.",
             [report["doc_id"]]))
@@ -202,7 +225,7 @@ def check_payment(state: AgentState, today: date | None = None) -> tuple[dict, l
             issues.append(_issue("bank_statement_needed", "warn",
                 f"Upload your bank statement from {after.isoformat() if after else 'the decision date'} onwards "
                 "so we can check the money actually arrived. A 'settled' status alone is not proof of payment."))
-        status = "reported" if report else "awaiting"
+        status = "top_up_due" if top_up else "reported" if report else "awaiting"
         return {**payment, "status": "mismatch" if _has(issues, "short_payment") else status}, issues
 
     matches, method = match_credits(available_credits(credits, reports[:-1]), expected, (report or {}).get("utr"), after)
@@ -227,12 +250,12 @@ def check_payment(state: AgentState, today: date | None = None) -> tuple[dict, l
         last_day = max(end for _, end in periods)
         issues.append(_issue("statement_too_old", "warn",
             f"Your latest statement ends on {last_day}, before the payment or decision date {after}. Upload a newer one."))
-        status = "reported" if report else "awaiting"
+        status = "top_up_due" if top_up else "reported" if report else "awaiting"
         return {**payment, "status": "mismatch" if _has(issues, "short_payment") else status}, issues
     elif after and periods and not any(start and start <= after <= end for start, end in periods):
         issues.append(_issue("bank_statement_needed", "warn",
             f"The uploaded statement periods do not confirm coverage for {after}. Upload a statement that includes that date."))
-        status = "reported" if report else "awaiting"
+        status = "top_up_due" if top_up else "reported" if report else "awaiting"
         return {**payment, "status": "mismatch" if _has(issues, "short_payment") else status}, issues
     elif expected:
         advice = f" {BANK_TRACE}" if report and _ref(report["utr"]) else ""
@@ -244,6 +267,8 @@ def check_payment(state: AgentState, today: date | None = None) -> tuple[dict, l
     bad = {"short_payment", "credit_amount_mismatch", "credit_not_found", "duplicate_credit"}
     if any(i["code"] in bad for i in issues):
         status = "mismatch"
+    elif top_up:
+        status = "top_up_due"
     elif matches:
         status = "verified"
     else:

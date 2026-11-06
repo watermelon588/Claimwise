@@ -102,6 +102,10 @@ def request_pack_approval(state: dict) -> tuple[Literal["blocked", "approved", "
     Returns:
         ("blocked", blocker texts), ("approved", the submission_approval record) or ("declined", None).
     """
+    submitted_on = (state.get("claim_info") or {}).get("submitted_on")
+    if submitted_on:  # a submitted claim is never re-approved; later documents answer queries instead
+        return "blocked", [f"This claim was already submitted on {submitted_on}. Send further documents as a "
+                           "reply to the insurer's request, not as a new claim pack."]
     blockers = submission_blockers(state)
     if blockers:
         return "blocked", blockers

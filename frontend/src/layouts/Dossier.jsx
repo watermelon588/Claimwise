@@ -111,7 +111,23 @@ export default function Dossier({ cw, view }) {
         </div>
       </header>
 
-      {view.onboarding ? (
+      {cw.loadingThread ? (
+        // Saved session still loading from the server: say so instead of showing an empty new claim.
+        <main className="mx-auto max-w-3xl px-6 pt-14 pb-24 sm:pt-16">
+          <div role="status" className="relative max-w-xl overflow-hidden rounded-2xl border border-line bg-paper p-5">
+            <div className="flex items-center gap-4">
+              <Mascot state="reading" size="sidebar" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">Loading your claim</p>
+                <p className="text-xs text-muted">Pip is opening your saved case file.</p>
+              </div>
+            </div>
+            <div className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-line" aria-hidden>
+              <div className="animate-indeterminate h-full w-2/5 bg-coral" />
+            </div>
+          </div>
+        </main>
+      ) : view.onboarding ? (
         <main className="mx-auto max-w-3xl px-6 pt-14 pb-24 sm:pt-16">
           <div className={view.current.id === 'confirm' ? 'max-w-2xl' : 'max-w-xl'}>
             <span data-enter className="grid size-12 place-items-center rounded-xl bg-ink text-milk">

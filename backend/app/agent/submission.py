@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 
 from app import connector
 from app.agent.authority import acting_user, authority_issues
-from app.agent.claim import _latest_facts, build_submission_pack
+from app.agent.claim import _latest_facts, build_submission_pack, confirmed_policy
 from app.agent.prompts import (
     ALREADY_SUBMITTED_REPLY, BAD_DATE_REPLY, MANUAL_RECORDED_REPLY, NEED_APPROVAL_REPLY, NEED_CONNECTION_REPLY,
     NOTE_CONNECTION_EXPIRED, NOTE_SUBMITTED, PACK_INCOMPLETE_REPLY, REFUSAL_REASONS, REFUSED_REPLY, SUBMITTED_REPLY,
@@ -22,7 +22,12 @@ from app.agent.state import AgentState
 from app.agent.tools import RULES
 
 SETTLE_DAYS = RULES["claim_submitted"][0][0]
-PROVIDER = "Medivista TPA (mock)"
+
+
+def provider_name(state: AgentState) -> str:
+    """Who receives the claim, in words: the policy's TPA, else its insurer."""
+    policy = confirmed_policy(state) or {}
+    return policy.get("tpa") or policy.get("insurer") or "your insurer"
 
 
 def now_iso() -> str:
@@ -82,10 +87,10 @@ def _submitted(state: AgentState, pack_hash: str, reference: str, claim: dict) -
         "notifications": [{"id": f"submitted-{claim['id']}", "at": at, "kind": "update",
                            "text": NOTE_SUBMITTED.format(claim_id=claim["id"]), "read": False}],
     }
-    return update, SUBMITTED_REPLY.format(provider=PROVIDER, date=day, claim_id=claim["id"], due=due_date(day))
+    return update, SUBMITTED_REPLY.format(provider=provider_name(state), date=day, claim_id=claim["id"], due=due_date(day))
 
 
-def _connection_lost(state: AgentState, code: str) -> tuple[dict, str]:
+def connection_lost(state: AgentState, code: str) -> tuple[dict, str]:
     """Mark the connection expired (consent removed or session ended) and tell the user to reconnect."""
     conn = state["connection"]
     at = now_iso()
@@ -128,7 +133,7 @@ def submit_via_connector(state: AgentState, thread_id: str) -> tuple[dict, str]:
         claim = found[0] if found else connector.submit_claim(conn["case_id"], body, reference)
     except connector.ConnectorError as exc:
         if exc.status in (401, 403):
-            return _connection_lost(state, exc.code)
+            return connection_lost(state, exc.code)
         if exc.status == 422 and exc.code in REFUSAL_REASONS:
             return {"submission": {"route": "connector", "pack_hash": pack["hash"], "client_reference": reference,
                                    "status": "refused", "claim_id": None, "error": exc.code}}, \
@@ -147,6 +152,21 @@ def recover(case_id: str, reference: str) -> dict | None:
     except connector.ConnectorError:
         return None
     return found[0] if found else None
+
+
+def not_at_payer(state: AgentState) -> bool:
+    """True only when the payer answered and holds no claim for an unconfirmed submission's reference.
+
+    Then the pack never arrived, and a retry (which looks up first and reuses the same idempotency key) is safe.
+    False when the payer cannot be reached: then nobody knows yet.
+    """
+    sub, conn = state.get("submission") or {}, state.get("connection")
+    if sub.get("status") != "unconfirmed" or not conn or conn["status"] != "active":
+        return False
+    try:
+        return connector.find_claims(conn["case_id"], sub["client_reference"]) == []
+    except connector.ConnectorError:
+        return False
 
 
 def reconcile(state: AgentState) -> tuple[dict, str | None]:

@@ -215,3 +215,29 @@ def test_submit_claim_is_idempotent_and_recoverable(demo, monkeypatch, tmp_path)
         refused = browser.post(claims, json={**body, "client_reference": "cw-other-ref-0001", "member_name": "Nobody"},
                                headers={**bearer, "Idempotency-Key": "key-other-ref-0001"})
         assert refused.status_code == 422 and refused.json()["detail"]["code"] == "MEMBER_NOT_COVERED"
+
+
+def test_answer_query_needs_consent_and_an_open_query(demo, monkeypatch, tmp_path):
+    """Answering a query needs TPA consent and an open query; the payer then marks the query answered."""
+    keys, client = demo
+    monkeypatch.setattr(settings, "mock_db_path", str(tmp_path / "mock.db"))
+    monkeypatch.setattr(settings, "docs_storage_path", str(tmp_path / "docs"))
+    load_scenario("standard_reimbursement")
+    connection = get_connection()
+    try:
+        set_faults(FaultsModel(webhook_down=True), connection)
+    finally:
+        connection.close()
+    bearer = {"Authorization": f"Bearer {keys.agent}"}
+    answer = {"documents": [{"id": "d1", "filename": "lab.pdf", "doc_type": "investigation_report"}]}
+    with client(httpx.ASGITransport(app=mock_app, raise_app_exceptions=False)) as browser:
+        docs = verify(browser, keys).removesuffix("/tools") + "/claims/CLM-0001/documents"
+        assert browser.post(docs, json=answer, headers=bearer).status_code == 403
+        consent(browser, keys, "tpa")
+        assert browser.post(docs, json=answer, headers=bearer).json()["detail"]["code"] == "QUERY_NOT_OPEN"
+        with TestClient(mock_app) as payer:
+            payer.post("/payer/claims/CLM-0001/query", json={"items": [{"code": "lab", "label": "Lab reports"}]})
+        assert browser.post(docs, json={"documents": []}, headers=bearer).status_code == 422
+        sent = browser.post(docs, json=answer, headers=bearer)
+        assert sent.status_code == 200 and sent.json()["data"]["status"] == "under_review"
+        assert sent.json()["source"]["tool"] == "answer_query"

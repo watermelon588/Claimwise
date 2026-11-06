@@ -10,7 +10,7 @@ from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.types import interrupt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.agent.llm import LLMNotConfigured, get_document_llm
 from app.agent.prompts import CONFIRM_POLICY_QUESTION, DOCUMENT_EXTRACTION_PROMPT, REJECTED_FILE_REASON
@@ -146,7 +146,7 @@ def extract_document(doc: Document) -> DocumentExtraction:
     data = base64.b64encode(Path(doc["path"]).read_bytes()).decode()
     kind = "file" if doc["mime_type"] == "application/pdf" else "image"
     file_block = {"type": kind, "base64": data, "mime_type": doc["mime_type"]}
-    llm = get_document_llm().with_structured_output(DocumentExtraction)
+    llm = get_document_llm(DocumentExtraction)
     return llm.invoke([
         SystemMessage(DOCUMENT_EXTRACTION_PROMPT),
         HumanMessage(content_blocks=[{"type": "text", "text": "Read this file."}, file_block]),
@@ -264,6 +264,20 @@ def route_after_check(state: AgentState) -> Literal["confirm_facts", "review_cla
     """Edge after O2: pause for confirmation while any policy is pending, else review the claim (C1)."""
     pending = any(p["status"] == "pending" for p in state.get("policies", []))
     return "confirm_facts" if pending else "review_claim"
+
+
+def correction_error(policy: dict, corrections: dict) -> str | None:
+    """Why the user's corrections to a policy card cannot be saved (a wrong type or format), or None when they can.
+
+    Checked at the API before the paused run resumes, so a bad value is refused instead of failing the run.
+    """
+    fields = {k: v for k, v in (corrections or {}).items() if k in EDITABLE_FIELDS}
+    try:
+        PolicyFields(**{**{k: policy.get(k) for k in EDITABLE_FIELDS}, **fields})
+    except ValidationError as exc:
+        names = sorted({str(e["loc"][0]) for e in exc.errors() if e.get("loc")})
+        return "These corrections are not valid: " + ", ".join(names) + ". Use whole rupees and YYYY-MM-DD dates."
+    return None
 
 
 def confirm_facts(state: AgentState) -> dict:

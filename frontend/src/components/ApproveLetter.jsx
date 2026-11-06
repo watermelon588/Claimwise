@@ -4,7 +4,11 @@ import { Check } from 'lucide-react'
 import { Button, Quiet } from './ui.jsx'
 import { EYEBROW, ICON } from './tokens.js'
 
-const TITLES = { grievance: 'Grievance to the insurer', ombudsman: 'Complaint to the Insurance Ombudsman' }
+const TITLES = {
+  grievance: 'Grievance to the insurer',
+  ombudsman: 'Complaint to the Insurance Ombudsman',
+  query_reply: 'Answer to the insurer\'s query',
+}
 
 /**
  * Letter approval card.

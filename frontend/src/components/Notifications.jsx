@@ -51,14 +51,14 @@ export default function Notifications({ cw }) {
           {shown.map((n) => {
             const { Icon, tile } = KIND[n.kind] ?? KIND.update
             return (
-              <li key={n.id} className="flex gap-3.5 py-3.5">
+              <li key={n.id} className={`flex gap-3.5 py-3.5 ${n.resolved ? 'opacity-55' : ''}`}>
                 <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${tile}`}><Icon {...ICON} size={15} /></span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm leading-relaxed">
                     {!n.read && <span className="mr-2 inline-block size-1.5 rounded-full bg-coral align-middle" aria-label="New" />}
                     {n.text}
                   </p>
-                  <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">{when(n.at)}</p>
+                  <p className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted">{when(n.at)}{n.resolved && ' · no longer due'}</p>
                 </div>
               </li>
             )
