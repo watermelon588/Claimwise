@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claimwise provider connections</title>
+  <style nonce="__NONCE__">
+    :root { color-scheme: light; font: 100%/1.55 system-ui, sans-serif; color: #26221d; background: #fff9ee; }
+    main { max-width: 52rem; margin: 3rem auto; padding: 0 1.25rem; }
+    h1 { margin: .5rem 0; line-height: 1.15; }
+    h2 { margin: 0 0 .4rem; font-size: 1.2rem; }
+    p { margin: .4rem 0 1rem; }
+    article, #verification { background: white; border: 1px solid #ded3c2; border-radius: .7rem; padding: 1rem; }
+    #providers { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr)); gap: .85rem; }
+    .badge { display: inline-block; padding: .15rem .5rem; border-radius: .3rem; background: #f8d888; font-size: .85rem; }
+    .connected { color: #18563b; font-weight: 650; }
+    label { display: block; margin-bottom: .65rem; }
+    input[type=password] { box-sizing: border-box; width: 100%; padding: .55rem; margin-top: .25rem; }
+    button, input { font: inherit; border-radius: .3rem; border: 1px solid #8b7c6b; }
+    button { background: #332419; color: white; padding: .4rem .8rem; cursor: pointer; }
+    button:disabled { opacity: .65; cursor: wait; }
+    :focus-visible { outline: 3px solid #946000; outline-offset: 3px; }
+    code { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="badge">Claimwise · Synthetic demo</span>
+    <h1>Provider connections</h1>
+    <p>Approve read access to a provider so the agent can fetch that case information when it needs it. Use the demo codes from the connector terminal.</p>
+    <p id="status" role="status" aria-live="polite"></p>
+    <form id="verification" hidden>
+      <h2>Verify your demo case</h2>
+      <label>Onboarding verification code
+        <input name="code" type="password" autocomplete="off" maxlength="128" required>
+      </label>
+      <button>Verify case</button>
+    </form>
+    <section id="workspace" aria-label="Verified case connections" hidden>
+      <p>Demo case reference <code id="case"></code></p>
+      <div id="providers"></div>
+      <p><button type="button" id="sign-out">Sign out and disconnect all</button></p>
+    </section>
+    <noscript><p>Enable JavaScript to manage demo connections.</p></noscript>
+  </main>
+  <script nonce="__NONCE__">
+    const verification = document.querySelector("#verification");
+    const workspace = document.querySelector("#workspace");
+    const providers = document.querySelector("#providers");
+    const status = document.querySelector("#status");
+    const messages = {
+      INVALID_ONBOARDING_CODE: "That onboarding code did not match. Check the connector terminal.",
+      INVALID_PROVIDER_CODE: "That provider sign-in code did not match. Check the code for this provider.",
+      CONSENT_REQUIRED: "Approve this provider's read access to connect it.",
+      VERIFICATION_REQUIRED: "Verify your demo case to continue.",
+    };
+
+    /** Call the same-origin connector API and convert safe error codes to messages. */
+    async function api(path = "", method = "GET", data) {
+      const response = await fetch("/api/connectors" + path, {
+        method,
+        headers: data ? {"Content-Type": "application/json"} : {},
+        body: data ? JSON.stringify(data) : undefined,
+      });
+      if (response.status === 204) return;
+      const result = await response.json();
+      if (!response.ok) {
+        const code = result.detail?.code;
+        const error = new Error(messages[code] || "The connector could not complete that request. Try again.");
+        error.status = response.status;
+        throw error;
+      }
+      return result;
+    }
+
+    /** Run a user action once, refresh current grants, and announce the outcome. */
+    async function perform(button, operation, message, refresh = true) {
+      button.disabled = true;
+      status.textContent = "";
+      try {
+        await operation();
+        if (refresh) await load();
+        status.textContent = message;
+      } catch (error) {
+        if (error.status === 401) showVerification();
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    /** Build a card with text-only provider metadata and controls for its current state. */
+    function providerCard(provider) {
+      const card = document.createElement("article");
+      const title = document.createElement("h2");
+      title.textContent = provider.label;
+      const scope = document.createElement("p");
+      scope.textContent = provider.description;
+      card.append(title, scope);
+      const path = "/" + encodeURIComponent(provider.provider);
+      if (provider.connected) {
+        const state = document.createElement("p");
+        state.className = "connected";
+        state.textContent = "Connected";
+        const button = document.createElement("button");
+        button.textContent = "Disconnect";
+        button.setAttribute("aria-label", "Disconnect " + provider.label);
+        button.addEventListener("click", () =>
+          perform(button, () => api(path, "DELETE"), provider.label + " disconnected."));
+        card.append(state, button);
+      } else {
+        const form = document.createElement("form");
+        form.innerHTML = `
+          <label>Provider sign-in code
+            <input type="password" name="code" autocomplete="off" maxlength="128" required>
+          </label>
+          <label><input type="checkbox" name="approved" required>
+            I allow the agent to read the data listed above for this case.
+          </label>
+          <button>Connect provider</button>`;
+        form.setAttribute("aria-label", "Connect " + provider.label);
+        const button = form.querySelector("button");
+        button.setAttribute("aria-label", "Connect " + provider.label);
+        form.addEventListener("submit", event => {
+          event.preventDefault();
+          const code = form.elements.code.value;
+          const approved = form.elements.approved.checked;
+          form.elements.code.value = "";
+          perform(button, () => api(path, "POST", {code, approved}), provider.label + " connected.");
+        });
+        card.append(form);
+      }
+      return card;
+    }
+
+    /** Return to the verification step and clear the previous case from the page. */
+    function showVerification() {
+      workspace.hidden = true;
+      verification.hidden = false;
+      document.querySelector("#case").textContent = "";
+      providers.replaceChildren();
+    }
+
+    /** Read the browser's verified case and render its current provider grants. */
+    async function load() {
+      const result = await api();
+      document.querySelector("#case").textContent = result.case_id;
+      providers.replaceChildren(...result.providers.map(providerCard));
+      verification.hidden = true;
+      workspace.hidden = false;
+    }
+
+    verification.addEventListener("submit", event => {
+      event.preventDefault();
+      const code = verification.elements.code.value;
+      verification.reset();
+      perform(verification.querySelector("button"),
+        () => api("/session", "POST", {code}), "Demo case verified.");
+    });
+    const signOut = document.querySelector("#sign-out");
+    signOut.addEventListener("click", () => perform(signOut, async () => {
+      await api("/session", "DELETE");
+      showVerification();
+    }, "Signed out and disconnected all providers.", false));
+    load().catch(error => {
+      showVerification();
+      if (error.status !== 401) status.textContent = error.message;
+    });
+  </script>
+</body>
+</html>
