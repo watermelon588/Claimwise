@@ -1,0 +1,16 @@
+# Private, local coding-agent instructions and session context.
+/.agent/
+/AGENTS.md
+/CLAUDE.md
+
+# Local research sources (assignment brief, regulator PDFs, saved case threads). Cited by URL in docs/02-research/sources.md; never committed.
+/Research-source/
+
+# Secrets
+.env
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
