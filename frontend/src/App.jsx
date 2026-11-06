@@ -1,74 +1,104 @@
-// Minimal chat page for talking to the Claimwise agent. Placeholder until the real UI is designed.
-import { useState } from 'react'
+// Claimwise app shell: public pages, Agent Dossier and Mock Console.
+import { useEffect, useState } from 'react'
+import HistorySidebar from './components/HistorySidebar.jsx'
+import LandingPage from './components/LandingPage.jsx'
+import { buildView } from './flow.js'
+import Dossier from './layouts/Dossier.jsx'
+import MockConsole from './mocks/MockConsole.jsx'
+import { scrollToTop, useSmoothScroll } from './motion.js'
+import { useClaimwise } from './useClaimwise.js'
 
-// One thread per browser tab; the backend checkpointer keeps its history.
-const THREAD_ID = crypto.randomUUID()
+const USER_STORAGE_KEY = 'claimwise_user_v1'
+const GUEST_PROFILE = { name: 'Guest' }
 
-/**
- * Chat screen: sends messages to POST /api/chat and lists the conversation.
- * @returns {JSX.Element}
- */
+/** Read stored user profile from localStorage. */
+function readStoredUser() {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(USER_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+/** Clear any profile left from an earlier workspace visit. */
+function clearStoredUser() {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(USER_STORAGE_KEY)
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+/** Read the active workspace, mock console or public page from the browser URL. */
+function resolveModeFromUrl() {
+  if (typeof window === 'undefined') return 'landing'
+  const path = window.location.pathname.replace(/\/$/, '')
+  const page = path.slice(1)
+  if (page === 'policy' || page === 'privacy' || page === 'terms') return page
+  const params = new URLSearchParams(window.location.search)
+  const view = params.get('view')
+  if (path === '/mocks' || view === 'mocks' || window.location.hash === '#mocks') return 'mocks'
+  if (path === '/app' || view === 'dossier') return 'dossier'
+  if (view === 'home' || window.location.hash === '#home') return 'landing'
+  return 'landing'
+}
+
+/** Render the public site, Agent Dossier or Mock Console with the claim state kept mounted. */
 export default function App() {
-  const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const [busy, setBusy] = useState(false)
+  const cw = useClaimwise()
+  const [user, setUser] = useState(() => readStoredUser() ?? GUEST_PROFILE)
+  const [mode, setMode] = useState(resolveModeFromUrl)
+  useSmoothScroll()
 
-  /** Send the typed message and append the agent's reply (or the error). */
-  async function send(e) {
-    e.preventDefault()
-    const text = input.trim()
-    if (!text || busy) return
-    setMessages((m) => [...m, { role: 'user', text }])
-    setInput('')
-    setBusy(true)
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ thread_id: THREAD_ID, message: text }),
-      })
-      const data = await res.json()
-      const reply = res.ok ? data.reply : `Error: ${data.detail ?? res.status}`
-      setMessages((m) => [...m, { role: 'agent', text: reply }])
-    } catch {
-      setMessages((m) => [...m, { role: 'agent', text: 'Error: backend not reachable' }])
-    } finally {
-      setBusy(false)
+  useEffect(() => {
+    function onPopState() {
+      setMode(resolveModeFromUrl())
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  function switchMode(next) {
+    setMode(next)
+    if (typeof window !== 'undefined') {
+      const targetPath = next === 'mocks' ? '/mocks' : next === 'dossier' ? '/app' : '/'
+      window.history.pushState({}, '', targetPath)
+      scrollToTop()
     }
   }
 
+  function handleSignOut() {
+    setUser(GUEST_PROFILE)
+    clearStoredUser()
+    switchMode('landing')
+  }
+
+  if (mode === 'mocks') {
+    return <MockConsole onBackToApp={() => switchMode('landing')} />
+  }
+
+  if (mode !== 'dossier') {
+    return (
+      <LandingPage
+        page={mode}
+        onEnter={() => switchMode('dossier')}
+        onOpenMocks={() => switchMode('mocks')}
+      />
+    )
+  }
+
   return (
-    <main className="mx-auto flex h-screen max-w-2xl flex-col bg-white p-4 text-gray-900">
-      <h1 className="mb-4 text-xl font-semibold">Claimwise</h1>
-      <ul className="flex-1 space-y-3 overflow-y-auto">
-        {messages.map((m, i) => (
-          <li
-            key={i}
-            className={`whitespace-pre-wrap rounded-lg px-3 py-2 ${
-              m.role === 'user' ? 'ml-auto max-w-[80%] bg-gray-900 text-white' : 'max-w-[80%] bg-gray-100'
-            }`}
-          >
-            {m.text}
-          </li>
-        ))}
-        {busy && <li className="text-sm text-gray-500">Thinking...</li>}
-      </ul>
-      <form onSubmit={send} className="mt-4 flex gap-2">
-        <input
-          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Describe your claim situation..."
-          aria-label="Message"
-        />
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded-lg bg-gray-900 px-4 py-2 text-white disabled:opacity-50"
-        >
-          Send
-        </button>
-      </form>
-    </main>
+    <>
+      <HistorySidebar
+        cw={cw}
+        user={user}
+        onGoHome={() => switchMode('landing')}
+        onSignOut={handleSignOut}
+      />
+      <Dossier cw={cw} view={buildView(cw)} />
+    </>
   )
 }
