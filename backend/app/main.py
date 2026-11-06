@@ -20,6 +20,8 @@ async def lifespan(app: FastAPI):
     saver, pool = open_checkpointer()
     app.state.db_pool = pool
     app.state.graph = build_graph(saver)
+    # ponytail: claim id -> thread id for payer webhooks, in memory; rebuilt as threads are opened.
+    app.state.claim_threads = {}
     yield
     if pool is not None:
         pool.close()

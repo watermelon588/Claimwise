@@ -29,6 +29,32 @@ def _groq():
     return ChatGroq(model=s.groq_model, api_key=s.groq_api_key, temperature=0)
 
 
+def get_document_llm():
+    """Chat model that can read PDFs and images: Gemini only (Groq has no file input).
+
+    Raises:
+        LLMNotConfigured: if GOOGLE_API_KEY is missing.
+    """
+    model = _gemini()
+    if model is None:
+        raise LLMNotConfigured("Reading documents needs GOOGLE_API_KEY (Gemini)")
+    return model
+
+
+def get_structured_llm(schema: type) -> Runnable:
+    """Chat model that returns the given Pydantic schema, with the same primary/fallback order as get_llm.
+
+    Raises:
+        LLMNotConfigured: if neither provider has an API key.
+    """
+    gemini, groq = _gemini(), _groq()
+    order = [gemini, groq] if get_settings().llm_provider == "gemini" else [groq, gemini]
+    models = [m.with_structured_output(schema) for m in order if m is not None]
+    if not models:
+        raise LLMNotConfigured("Set GOOGLE_API_KEY or GROQ_API_KEY")
+    return models[0].with_fallbacks(models[1:]) if len(models) > 1 else models[0]
+
+
 def get_llm(tools: list | None = None) -> Runnable:
     """Build the chat model: LLM_PROVIDER is the primary, the other provider is the fallback.
 

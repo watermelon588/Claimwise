@@ -25,9 +25,21 @@ def open_checkpointer() -> tuple[BaseCheckpointSaver, ConnectionPool | None]:
         return InMemorySaver(), None
 
     # autocommit and prepare_threshold=0 are required by PostgresSaver and by Neon's pooler.
+    # check_connection tests pooled connections before checkout so idle connections closed
+    # by Neon Serverless Postgres are transparently replaced without a server restart.
     pool = ConnectionPool(
         conninfo=url,
-        kwargs={"autocommit": True, "prepare_threshold": 0},
+        kwargs={
+            "autocommit": True,
+            "prepare_threshold": 0,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+        },
+        check=ConnectionPool.check_connection,
+        max_idle=120,
+        max_lifetime=600,
         open=True,
     )
     saver = PostgresSaver(pool)
