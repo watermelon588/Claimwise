@@ -5,8 +5,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 import os
+import re
 import secrets
 from time import monotonic
+from typing import Literal
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Path as PathParam, Query, Request, Response
@@ -25,6 +27,12 @@ SESSION_SECONDS = 3600
 CLAIM_ID = r"^CLM-[A-Z0-9]{1,16}$"
 REFERENCE = r"^[A-Za-z0-9_-]{8,80}$"  # idempotency keys and client references
 PROVIDERS = {tool.provider: (name, tool) for name, tool in TOOLS.items()}
+THREAD_ID = r"^[A-Za-z0-9_-]{1,100}$"
+EMAIL_TOOL = {
+    "name": "case_email", "provider": "email", "label": "Case email",
+    "scope": "email.notify", "description": "Deliver case updates to the synthetic inbox",
+}
+MAIL_SUBJECTS = {"update": "There is an update on your claim", "reminder": "Your claim needs attention"}
 
 
 @dataclass(frozen=True)
@@ -33,6 +41,7 @@ class DemoKeys:
 
     onboarding: str = field(default_factory=lambda: secrets.token_urlsafe(18))
     agent: str = field(default_factory=lambda: secrets.token_urlsafe(32))
+    email: str = field(default_factory=lambda: secrets.token_urlsafe(18))
     providers: dict[str, str] = field(
         default_factory=lambda: {provider: secrets.token_urlsafe(18) for provider in PROVIDERS}
     )
@@ -45,6 +54,9 @@ class Session:
     browser_key: str
     expires_at: float
     grants: dict[str, str] = field(default_factory=dict)
+    thread_id: str | None = None
+    email_since: datetime | None = None
+    inbox: dict[str, dict] = field(default_factory=dict)
 
 
 class Verification(BaseModel):
@@ -58,6 +70,35 @@ class Consent(Verification):
     """Require affirmative read consent in addition to the provider sign-in code."""
 
     approved: StrictBool
+
+
+class MailNotice(BaseModel):
+    """A minimized notification for the synthetic inbox."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[a-f0-9]{64}$")
+    at: datetime
+    kind: Literal["update", "reminder"]
+
+
+class MailBatch(BaseModel):
+    """Limit the number of notices accepted per delivery."""
+
+    model_config = ConfigDict(extra="forbid")
+    notices: list[MailNotice] = Field(max_length=50)
+
+
+def workspace_thread(request: Request) -> str | None:
+    """Validate the requested browser workspace and derive its cookie namespace."""
+    thread = request.headers.get("x-claimwise-thread")
+    if thread is not None and not re.fullmatch(THREAD_ID, thread):
+        raise fail(422, "INVALID_THREAD")
+    return thread
+
+
+def cookie_name(thread: str | None) -> str:
+    """Keep consent for one claim separate from consent for another claim in the same browser."""
+    return f"{SESSION_COOKIE}_{thread}" if thread else SESSION_COOKIE
 
 
 def matches(presented: str, expected: str) -> bool:
@@ -84,6 +125,7 @@ def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport
             print("Local demo onboarding code:", credentials.onboarding, flush=True)
             for provider, code in credentials.providers.items():
                 print(f"Local demo {provider} sign-in code: {code}", flush=True)
+            print("Local demo email sign-in code:", credentials.email, flush=True)
             print("Local demo server bearer key:", credentials.agent, flush=True)
         async with httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{int(os.environ.get('CLAIMWISE_MOCK_PORT', '8100'))}",
@@ -123,9 +165,10 @@ def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport
 
     def browser_case(request: Request) -> tuple[str, Session]:
         """Authenticate a browser using the cookie's case reference and separate secret."""
-        case_id, _, browser_key = request.cookies.get(SESSION_COOKIE, "").partition(".")
+        thread = workspace_thread(request)
+        case_id, _, browser_key = request.cookies.get(cookie_name(thread), "").partition(".")
         session = active_case(case_id)
-        if not matches(browser_key, session.browser_key):
+        if session.thread_id != thread or not matches(browser_key, session.browser_key):
             raise fail(401, "VERIFICATION_REQUIRED")
         return case_id, session
 
@@ -166,10 +209,11 @@ def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport
         if len(sessions) >= 64:
             raise fail(503, "DEMO_SESSION_LIMIT")
         case_id = secrets.token_urlsafe(18)
-        session = Session(secrets.token_urlsafe(32), now + SESSION_SECONDS)
+        thread = workspace_thread(request)
+        session = Session(secrets.token_urlsafe(32), now + SESSION_SECONDS, thread_id=thread)
         sessions[case_id] = session
         response.set_cookie(
-            SESSION_COOKIE, f"{case_id}.{session.browser_key}", max_age=SESSION_SECONDS,
+            cookie_name(thread), f"{case_id}.{session.browser_key}", max_age=SESSION_SECONDS,
             httponly=True, samesite="strict",
         )
         return {"case_id": case_id}
@@ -179,50 +223,90 @@ def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport
         """End the verified case and invalidate all of its provider grants."""
         case_id, _ = browser_case(request)
         del sessions[case_id]
-        response.delete_cookie(SESSION_COOKIE)
+        response.delete_cookie(cookie_name(workspace_thread(request)))
 
     @gateway.get("/api/connectors")
     async def catalog(request: Request):
         """Show provider scopes and the current verified browser's connection status."""
         case_id, session = browser_case(request)
+        providers = [tool.descriptor(name) for name, tool in TOOLS.items()]
+        if session.thread_id:
+            providers.append(EMAIL_TOOL)
         return {
             "case_id": case_id,
-            "providers": [
-                {**tool.descriptor(name), "connected": tool.provider in session.grants}
-                for name, tool in TOOLS.items()
-            ],
+            "providers": [{**tool, "connected": tool["provider"] in session.grants} for tool in providers],
         }
 
     @gateway.post("/api/connectors/{provider}")
     async def connect(provider: str, body: Consent, request: Request):
         """Grant a provider scope only after verification, sign-in and explicit approval."""
         _, session = browser_case(request)
-        if provider not in PROVIDERS:
+        if provider not in PROVIDERS and not (provider == "email" and session.thread_id):
             raise fail(404, "UNKNOWN_PROVIDER")
-        if not matches(body.code, credentials.providers[provider]):
+        code = credentials.email if provider == "email" else credentials.providers.get(provider)
+        if not code or not matches(body.code, code):
             raise fail(403, "INVALID_PROVIDER_CODE")
         if not body.approved:
             raise fail(403, "CONSENT_REQUIRED")
-        session.grants.setdefault(provider, secrets.token_urlsafe(18))
+        if provider not in session.grants:
+            session.grants[provider] = secrets.token_urlsafe(18)
+            if provider == "email":
+                session.email_since = datetime.now(timezone.utc)
         return {"provider": provider, "connected": True}
 
     @gateway.delete("/api/connectors/{provider}", status_code=204)
     async def disconnect(provider: str, request: Request):
         """Revoke one provider without affecting the other grants."""
         _, session = browser_case(request)
-        if provider not in PROVIDERS:
+        if provider not in PROVIDERS and not (provider == "email" and session.thread_id):
             raise fail(404, "UNKNOWN_PROVIDER")
         session.grants.pop(provider, None)
+        if provider == "email":
+            session.email_since = None
+            session.inbox.clear()
 
     @gateway.get("/agent/cases/{case_id}/tools")
     async def discover(case_id: str, request: Request):
         """Return only the tools currently approved for the trusted caller's case."""
         session = agent_case(request, case_id)
-        return {
-            "tools": [
-                tool.descriptor(name) for name, tool in TOOLS.items() if tool.provider in session.grants
-            ],
-        }
+        if session.thread_id != workspace_thread(request):
+            raise fail(403, "WRONG_WORKSPACE")
+        tools = [tool.descriptor(name) for name, tool in TOOLS.items() if tool.provider in session.grants]
+        if "email" in session.grants:
+            tools.append(EMAIL_TOOL)
+        return {"tools": tools}
+
+    @gateway.get("/api/connectors/inbox")
+    async def inbox(request: Request):
+        """Return delivered demo mail only to the case's verified browser."""
+        _, session = browser_case(request)
+        if "email" not in session.grants:
+            raise fail(403, "PROVIDER_NOT_CONNECTED")
+        return {"messages": sorted(session.inbox.values(), key=lambda row: row["at"], reverse=True)}
+
+    @gateway.get("/api/connectors/document")
+    async def hospital_document(request: Request):
+        """Read the approved hospital fixture for the verified browser."""
+        case_id, session = browser_case(request)
+        return await read_fixture(case_id, session, "read_discharge_summary", request)
+
+    @gateway.post("/agent/cases/{case_id}/mail")
+    async def deliver(case_id: str, body: MailBatch, request: Request):
+        """Deliver post-consent notices once, without names, amounts, or attachments."""
+        session = agent_case(request, case_id)
+        if not session.email_since or "email" not in session.grants:
+            raise fail(403, "PROVIDER_NOT_CONNECTED")
+        for notice in body.notices:
+            if notice.at.tzinfo is None or notice.at < session.email_since:
+                continue
+            session.inbox.setdefault(notice.id, {
+                "id": notice.id, "at": notice.at.isoformat(), "subject": MAIL_SUBJECTS[notice.kind],
+                "body": "Open your Claimwise case to see the latest update.",
+            })
+        if len(session.inbox) > 100:
+            retained = sorted(session.inbox.values(), key=lambda row: row["at"], reverse=True)[:100]
+            session.inbox = {row["id"]: row for row in retained}
+        return {"delivered": True}
 
     def claims_grant(request: Request, case_id: str) -> str:
         """Server auth plus the TPA connection, which covers claim reads and approved submissions."""
@@ -293,7 +377,10 @@ def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport
     @gateway.get("/agent/cases/{case_id}/tools/{name}")
     async def invoke(case_id: str, name: str, request: Request):
         """Read the approved fixture, recheck consent after I/O, and add source metadata."""
-        session = agent_case(request, case_id)
+        return await read_fixture(case_id, agent_case(request, case_id), name, request)
+
+    async def read_fixture(case_id: str, session: Session, name: str, request: Request):
+        """Share the same grant enforcement for agent and browser reads."""
         tool = TOOLS.get(name)
         if tool is None:
             raise fail(404, "UNKNOWN_TOOL")

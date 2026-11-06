@@ -121,3 +121,47 @@ def test_threads_list_and_thread_state_hydration(monkeypatch):
         assert "answers" in payload
         assert isinstance(payload["answers"], dict)
         assert payload["documents"] == []
+
+def test_workspace_reads_only_approved_tools_after_onboarding(monkeypatch):
+    """A verified workspace reads its approved resource and keeps fixture evidence separate from claim status."""
+    from app import connector
+    from app.config import get_settings
+    from tests.test_claim import BILL, SUMMARY, base_state
+
+    monkeypatch.setenv("DATABASE_URL", "")
+    get_settings.cache_clear()
+    tools = ["read_bank_credits", "case_email"]
+    reads, mail = [], []
+
+    def discover(case_id, thread_id):
+        assert case_id == "case-connector-code" and thread_id == "workspace-test"
+        return tools.copy()
+
+    def read(case_id, tool):
+        assert case_id == "case-connector-code"
+        reads.append(tool)
+        return {"credits": [{"amount": 4000}]}
+
+    monkeypatch.setattr(connector, "connected_tools", discover)
+    monkeypatch.setattr(connector, "read_fixture", read)
+    monkeypatch.setattr(connector, "deliver_notices", lambda case_id, notices: mail.extend(notices))
+    body = {"thread_id": "workspace-test", "code": "case-connector-code"}
+
+    with TestClient(app) as client:
+        assert client.post("/api/connection/sync", json=body).status_code == 409
+        config = {"configurable": {"thread_id": "workspace-test"}}
+        app.state.graph.update_state(config, base_state(SUMMARY, BILL), as_node="reply_off_topic")
+        response = client.post("/api/connection/sync", json=body)
+        assert response.status_code == 200
+        assert "Credit entries: 1" in response.json()["notifications"][0]["text"]
+        assert response.json()["connection"] is None
+        assert response.json()["claim"].get("payment") is None
+        assert len(mail) == 1 and set(mail[0]) == {"id", "at", "kind"}
+        assert reads == ["read_bank_credits"]
+
+        tools.clear()
+        assert client.post("/api/connection/sync", json=body).status_code == 200
+        state = app.state.graph.get_state(config).values
+        assert state["workspace_connectors"]["evidence"] == {}
+        assert reads == ["read_bank_credits"]
+    get_settings.cache_clear()

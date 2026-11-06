@@ -1,5 +1,6 @@
 """Verify the demo's trust boundary and all four existing mock read contracts."""
 
+from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
 
 import httpx
@@ -241,3 +242,37 @@ def test_answer_query_needs_consent_and_an_open_query(demo, monkeypatch, tmp_pat
         sent = browser.post(docs, json=answer, headers=bearer)
         assert sent.status_code == 200 and sent.json()["data"]["status"] == "under_review"
         assert sent.json()["source"]["tool"] == "answer_query"
+
+
+def test_workspace_consent_and_demo_mail(demo):
+    """Reject cross-thread claims and deliver generic messages once until consent is removed."""
+    keys, client = demo
+    workspace = {"X-Claimwise-Thread": "claim-one"}
+    other = {"X-Claimwise-Thread": "claim-two"}
+    with client() as browser:
+        verified = browser.post("/api/connectors/session", json={"code": keys.onboarding}, headers=workspace)
+        assert verified.status_code == 201
+        case = f"/agent/cases/{verified.json()['case_id']}"
+        server = {"Authorization": f"Bearer {keys.agent}"}
+        assert browser.get("/api/connectors", headers=other).status_code == 401
+        assert browser.get(f"{case}/tools", headers={**server, **other}).status_code == 403
+        assert browser.get(f"{case}/tools", headers=server).status_code == 403
+
+        email = "/api/connectors/email"
+        assert browser.post(email, json={"code": keys.email, "approved": False}, headers=workspace).status_code == 403
+        assert browser.post(email, json={"code": keys.email, "approved": True}, headers=workspace).status_code == 200
+        assert browser.get(f"{case}/tools", headers={**server, **workspace}).json()["tools"][0]["name"] == "case_email"
+        assert browser.get("/api/connectors/document", headers=workspace).status_code == 403
+        now = datetime.now(timezone.utc)
+        payload = {"notices": [
+            {"id": "a" * 64, "at": now.isoformat(), "kind": "update"},
+            {"id": "b" * 64, "at": (now - timedelta(days=1)).isoformat(), "kind": "reminder"},
+        ]}
+        for _ in range(2):
+            assert browser.post(f"{case}/mail", json=payload, headers=server).status_code == 200
+        messages = browser.get("/api/connectors/inbox", headers=workspace).json()["messages"]
+        assert [m["id"] for m in messages] == ["a" * 64]
+        assert set(messages[0]) == {"id", "at", "subject", "body"}
+        assert browser.delete(email, headers=workspace).status_code == 204
+        assert browser.get("/api/connectors/inbox", headers=workspace).status_code == 403
+        assert browser.post(f"{case}/mail", json=payload, headers=server).status_code == 403

@@ -1,5 +1,5 @@
 // State, activity, multi-thread history and backend calls for Claimwise threads.
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { docLabel } from './flow.js'
 
 const ACTIVE_THREAD_KEY = 'claimwise_active_thread_v1'
@@ -227,6 +227,7 @@ function formatErrorToast(status, rawDetail) {
  */
 export function useClaimwise() {
   const [threadId, setThreadId] = useState(getInitialThreadId)
+  const activeThread = useRef(threadId)
   const [threads, setThreads] = useState(() => {
     const stored = readStoredThreads()
     const currentId = getInitialThreadId()
@@ -414,6 +415,7 @@ export function useClaimwise() {
     setDocuments([])
     setAnswers(storedEntry?.answers ?? {})
     setSkipped(storedEntry?.skipped ?? {})
+    activeThread.current = nextId
     setThreadId(nextId)
   }
 
@@ -444,6 +446,7 @@ export function useClaimwise() {
       writeStoredThreads(next)
       return next
     })
+    activeThread.current = nextId
     setThreadId(nextId)
     return nextId
   }
@@ -465,6 +468,7 @@ export function useClaimwise() {
       setDocuments([])
       setAnswers({})
       setSkipped({})
+      activeThread.current = freshId
       setThreadId(freshId)
       return
     }
@@ -658,24 +662,27 @@ export function useClaimwise() {
    * Update the snapshot without touching the conversation (connection, read marks, background checks).
    * @returns {Promise<boolean>} whether the request succeeded
    */
-  async function quiet(path, init) {
+  async function quiet(path, init, showError = Boolean(init)) {
     try {
       const res = await fetch(path, init)
       const { data, text } = await readBody(res)
+      if (threadId !== activeThread.current) return false
       if (!res.ok || !data) {
-        if (init) setError(formatErrorToast(res.status, typeof data?.detail === 'string' ? data.detail : text))
+        if (showError) setError(formatErrorToast(res.status, typeof data?.detail === 'string' ? data.detail : text))
         return false
       }
       applySnapshot(threadId, data, null, answers, skipped)
       return true
     } catch {
-      if (init) setError(formatErrorToast(0, ''))
+      if (showError && threadId === activeThread.current) setError(formatErrorToast(0, ''))
       return false
     }
   }
 
   /** Bind the insurer account connected on the connector page to this claim, by its connection code. */
   const linkConnection = (code) => quiet('/api/connection', post(threadId, { code: code.trim() }))
+  /** Refresh the permissions and provider observations of this verified workspace. */
+  const syncTools = (code, showError = true) => quiet('/api/connection/sync', post(threadId, { code }), showError)
   /** Forget the connected account for this claim. */
   const unlinkConnection = () => quiet('/api/connection/remove', post(threadId, {}))
   /** Mark every notification read. */
@@ -717,7 +724,7 @@ export function useClaimwise() {
     actions, notifications, submission, connection, authority, audit, household, dispute,
     reply, answers, skipped,
     error, dismissError,
-    say, upload, answer, reviewPack, act, linkConnection, unlinkConnection, markRead, recordAuthority, withdrawAuthority,
+    say, upload, answer, reviewPack, act, linkConnection, syncTools, unlinkConnection, markRead, recordAuthority, withdrawAuthority,
     setClaimType,
     skip: skipStep,
   }

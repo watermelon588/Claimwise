@@ -1,16 +1,15 @@
 // Dossier: an ink case-file panel on the left (summary and documents) and the work on the right,
 // under a segmented progress bar. Reads like a file you work through.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import Alerts from '../components/Alerts.jsx'
-import CaseRecord from '../components/CaseRecord.jsx'
 import ClaimPack from '../components/ClaimPack.jsx'
 import Composer from '../components/Composer.jsx'
 import DocumentModal from '../components/DocumentModal.jsx'
 import Documents from '../components/Documents.jsx'
+import DossierCasePanel from '../components/DossierCasePanel.jsx'
 import ErrorToast from '../components/ErrorToast.jsx'
 import { stepIcon } from '../components/icons.js'
 import Mascot, { PipActivityLabel } from '../components/Mascot.jsx'
-import Notifications from '../components/Notifications.jsx'
 import { JourneyProgress } from '../components/Progress.jsx'
 import StepForm from '../components/StepForm.jsx'
 import Thread from '../components/Thread.jsx'
@@ -18,6 +17,8 @@ import { Brand, FilePick } from '../components/ui.jsx'
 import { EYEBROW, ICON } from '../components/tokens.js'
 import { useEnter, useReveal } from '../motion.js'
 import { journeyProgress } from '../flow.js'
+
+const CaseConnectors = lazy(() => import('../components/CaseConnectors.jsx'))
 
 const STAGE = {
   preparing: 'Preparing', approved_to_submit: 'Ready to submit', submitted: 'Submitted',
@@ -65,6 +66,9 @@ export default function Dossier({ cw, view }) {
   useReveal(root, `${cw.messages.length}:${view.alerts.length}`)
 
   const head = view.onboarding ? view.current : view.now
+  const progress = journeyProgress(view)
+  const step = head?.title ?? 'All current steps done'
+  const updates = cw.notifications.filter((item) => item.kind === 'update').slice(0, 2)
   const pipState = cw.busy ? cw.activity : cw.pending ? 'waiting' : 'ready'
 
   /** Open a document review with a temporary URL for this tab's original file. */
@@ -106,8 +110,9 @@ export default function Dossier({ cw, view }) {
       </aside>
 
       <header className="sticky top-0 z-30 border-b border-line/80 bg-milk/85 backdrop-blur-md">
-        <div className="mx-auto max-w-3xl px-6 py-3.5">
-          <JourneyProgress value={journeyProgress(view)} step={head?.title ?? 'All current steps done'} />
+        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3.5 sm:gap-5 sm:px-6">
+          <div className="min-w-0 flex-1"><JourneyProgress value={progress} step={step} /></div>
+          <DossierCasePanel key={cw.threadId} cw={cw} progress={progress} step={step} onOpenDocument={openDoc} />
         </div>
       </header>
 
@@ -147,8 +152,6 @@ export default function Dossier({ cw, view }) {
             <h2 id="dossier-needs" className={`mb-1 ${EYEBROW}`}>Needs you</h2>
             <Alerts alerts={view.alerts} cw={cw} />
           </section>
-          <Notifications cw={cw} />
-          <CaseRecord cw={cw} />
           {cw.threadId && cw.claim && !cw.loadingThread && (
             <ClaimPack
               key={cw.threadId}
@@ -162,7 +165,18 @@ export default function Dossier({ cw, view }) {
           )}
           <section aria-labelledby="dossier-talk" className="mt-14 pb-6">
             <h2 id="dossier-talk" className={`mb-6 ${EYEBROW}`}>Conversation</h2>
+            {updates.length > 0 && (
+              <section aria-label="Latest provider updates" className="mb-6 rounded-2xl border border-line bg-paper px-4 py-3">
+                <h3 className={EYEBROW}>Latest case updates</h3>
+                <ul className="mt-2 space-y-2 text-sm leading-relaxed">
+                  {updates.map((item) => <li key={item.id}>{item.text}</li>)}
+                </ul>
+              </section>
+            )}
             <Thread cw={cw} onOpenDocument={openDoc} />
+            {cw.onboarding?.complete && !cw.loadingThread && (
+              <Suspense fallback={null}><CaseConnectors key={cw.threadId} cw={cw} /></Suspense>
+            )}
           </section>
           <div className="sticky bottom-0 z-20 bg-milk pt-2 pb-6">
             <Composer cw={cw} />
