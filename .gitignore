@@ -8,9 +8,26 @@
 
 # Secrets
 .env
+.env.*
 !.env.example
 
 # Python
 .venv/
 __pycache__/
 .pytest_cache/
+
+# Mocks local database and generated documents
+/mock.db
+/mock.db-*
+/generated_docs/
+/mocks/mock.db
+/mocks/mock.db-*
+/mocks/generated_docs/
+
+# Uploaded user documents (prototype local storage)
+/backend/uploads/
+
+# Local design references, test output and Vercel metadata
+/frontend/reference/
+/frontend/.vercel/
+/e2e/.work/

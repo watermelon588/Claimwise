@@ -1,0 +1,26 @@
+[project]
+name = "claimwise-mocks"
+version = "0.1.0"
+description = "Mock external systems (payer, hospital, bank, grievance/ombudsman) and synthetic document generator for Claimwise demo"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "httpx>=0.27.0",
+    "fpdf2>=2.8.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mocks"]
