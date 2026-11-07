@@ -91,7 +91,7 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 `backend/.env` must hold a Gemini key (`GOOGLE_API_KEY`, optional `GOOGLE_API_KEY2`) and optionally `GROQ_API_KEY` and `DATABASE_URL`. Without `DATABASE_URL` claims live in memory and Run 7, step 7.11 (restart) cannot be shown.
 
-**Every gateway restart changes all codes and the bearer key.** Restart Terminal 3 with the new key, or Connect tools fails with `HTTP 403 Verify this demo workspace before connecting tools`.
+**Every gateway restart changes all codes and the bearer key.** Restart Terminal 3 with the new key, or Connect tools fails with `HTTP 403 Verify this demo workspace before connecting tools`. To keep them fixed, set `CONNECTOR_AGENT_KEY` (same value in Terminals 2 and 3) and the `CONNECTOR_*_CODE` variables before starting the gateway; the hosted demo does this ([hosting guide](hosting.md)).
 
 **Terminal 4: frontend, port 5173**
 

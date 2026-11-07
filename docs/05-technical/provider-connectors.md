@@ -20,7 +20,7 @@ The Vite development server proxies the browser-facing gateway routes on port 81
 3. **Leave the provider connected.** While the session is active, a trusted server can request that provider's data for this case without asking for the code again. Closing the browser tab does not end the session.
 4. **Disconnect when needed.** Disconnecting removes that tool from the case and blocks subsequent reads. Signing out disconnects all providers. Case sessions and approvals expire one hour after verification and are cleared on gateway restart. The gateway keeps this demo state in memory and requires one server worker.
 
-Each sign-in code simulates a provider verifying access to a preselected synthetic record. The same test records are available to the demo cases, and each case has its own approval state. The mock provider codes and the separate server bearer key are generated per gateway run. Use synthetic data only and keep the loopback server and its terminal private.
+Each sign-in code simulates a provider verifying access to a preselected synthetic record. The same test records are available to the demo cases, and each case has its own approval state. The mock provider codes and the separate server bearer key are generated per gateway run unless they are set in the environment (`CONNECTOR_AGENT_KEY`, `CONNECTOR_ONBOARDING_CODE`, `CONNECTOR_<PROVIDER>_CODE`, `CONNECTOR_EMAIL_CODE`), as the hosted demo does; only generated values are printed. Use synthetic data only and keep the server and its terminal private.
 
 ## What the agent can read
 
@@ -69,7 +69,7 @@ $env:CLAIMWISE_CONNECTOR_DEMO = '1'
 
 If 8100 is already in use, start the disposable mock instance on a different port and use that port in both `$mockBase` and `$env:CLAIMWISE_MOCK_PORT` before starting the gateway. Terminal 2 prints the synthetic verification and sign-in codes. In Claimwise, open **Connect tools**, verify the case, connect one provider, and reload the app to confirm it stays connected.
 
-For the in-app flow, start the backend and frontend as described in the [repository README](../../README.md#run-locally). Set the backend's `CONNECTOR_URL` to `http://127.0.0.1:8101` and `CONNECTOR_AGENT_KEY` to the gateway's server bearer key. Enter only the demo verification and provider sign-in codes in the browser. Enable the existing signed mock webhook on both services to see payer updates without refreshing. The connector proxy currently runs in Vite development.
+For the in-app flow, start the backend and frontend as described in the [repository README](../../README.md#run-locally). Set the backend's `CONNECTOR_URL` to `http://127.0.0.1:8101` and `CONNECTOR_AGENT_KEY` to the gateway's server bearer key. Enter only the demo verification and provider sign-in codes in the browser. Enable the existing signed mock webhook on both services to see payer updates without refreshing. The connector proxy runs in Vite development locally and through `frontend/vercel.json` when hosted; see the [hosting guide](../07-delivery/hosting.md).
 
 ## Gateway read contract and production binding
 

@@ -275,3 +275,21 @@ def test_workspace_consent_and_demo_mail(demo):
         assert browser.delete(email, headers=workspace).status_code == 204
         assert browser.get("/api/connectors/inbox", headers=workspace).status_code == 403
         assert browser.post(f"{case}/mail", json=payload, headers=server).status_code == 403
+
+
+def test_hosted_codes_and_frontend_origin(monkeypatch):
+    """Hosting: codes come from the environment (only generated ones are reported) and the proxied frontend may post."""
+    monkeypatch.setenv("CONNECTOR_AGENT_KEY", "shared-backend-key")
+    monkeypatch.setenv("CONNECTOR_ONBOARDING_CODE", "demo-onboarding")
+    monkeypatch.setenv("CONNECTOR_TPA_CODE", "demo-tpa")
+    keys, generated = DemoKeys.from_env()
+    assert (keys.agent, keys.onboarding, keys.providers["tpa"]) == ("shared-backend-key", "demo-onboarding", "demo-tpa")
+    labels = [label for label, _ in generated]
+    assert "server bearer key" not in labels and "onboarding code" not in labels and "bank sign-in code" in labels
+
+    monkeypatch.setenv("CONNECTOR_ALLOWED_ORIGINS", "https://claimwise.example")
+    monkeypatch.setenv("RENDER_EXTERNAL_HOSTNAME", "connectors.example")
+    with TestClient(create_app(keys), base_url="https://connectors.example") as browser:
+        body = {"code": "demo-onboarding"}
+        assert browser.post("/api/connectors/session", json=body, headers={"Origin": "https://claimwise.example"}).status_code == 201
+        assert browser.post("/api/connectors/session", json=body, headers={"Origin": "https://evil.example"}).status_code == 403

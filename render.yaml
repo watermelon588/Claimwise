@@ -1,0 +1,100 @@
+# Render Blueprint for the Claimwise demo: the agent API, the mock providers and the connector gateway.
+# The frontend is hosted on Vercel and proxies /api, /mock-api and /connector-api to these services
+# (frontend/vercel.json). Setup steps: docs/07-delivery/hosting.md.
+#
+# Shared secrets are generated once by Render and copied between services, so no key passes through a terminal:
+#   CONNECTOR_AGENT_KEY  connector gateway -> backend (server bearer key for agent reads and submissions)
+#   MOCK_WEBHOOK_SECRET  mock providers    -> backend (signs payer webhooks)
+# Values marked sync: false are asked for when the Blueprint is created.
+
+services:
+  - type: web
+    name: claimwise-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install uv && uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY2
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      # JSON list with the Vercel URL, for example ["https://claimwise.vercel.app"]
+      - key: CORS_ORIGINS
+        sync: false
+      # Public URL of the claimwise-connectors service, for example https://claimwise-connectors.onrender.com
+      - key: CONNECTOR_URL
+        sync: false
+      - key: CONNECTOR_AGENT_KEY
+        fromService:
+          type: web
+          name: claimwise-connectors
+          envVarKey: CONNECTOR_AGENT_KEY
+      - key: MOCK_WEBHOOK_SECRET
+        fromService:
+          type: web
+          name: claimwise-mocks
+          envVarKey: MOCK_WEBHOOK_SECRET
+
+  - type: web
+    name: claimwise-mocks
+    runtime: python
+    plan: free
+    rootDir: mocks
+    buildCommand: pip install uv && uv export --frozen --no-dev --no-emit-project --no-hashes -o requirements.txt && pip install -r requirements.txt
+    startCommand: uvicorn mocks.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /admin/overview
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: MOCK_API_KEYS
+        value: claimwise-demo-key,hospital-demo-key
+      - key: MOCK_WEBHOOK_SECRET
+        generateValue: true
+      # Backend webhook endpoint, for example https://claimwise-backend.onrender.com/api/webhooks/mock
+      - key: CLAIMWISE_WEBHOOK_URL
+        sync: false
+
+  - type: web
+    name: claimwise-connectors
+    runtime: python
+    plan: free
+    # Repository root: the gateway is the top-level connectors package; it uses the mocks' locked dependencies.
+    buildCommand: pip install uv && uv export --project mocks --frozen --no-dev --no-emit-project --no-hashes -o connectors-requirements.txt && pip install -r connectors-requirements.txt
+    startCommand: uvicorn connectors.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: CLAIMWISE_CONNECTOR_DEMO
+        value: "1"
+      - key: CONNECTOR_AGENT_KEY
+        generateValue: true
+      # Codes typed in the app's Connect tools panel. Read them in the Render dashboard (Environment tab).
+      - key: CONNECTOR_ONBOARDING_CODE
+        generateValue: true
+      - key: CONNECTOR_TPA_CODE
+        generateValue: true
+      - key: CONNECTOR_INSURER_CODE
+        generateValue: true
+      - key: CONNECTOR_HOSPITAL_CODE
+        generateValue: true
+      - key: CONNECTOR_BANK_CODE
+        generateValue: true
+      - key: CONNECTOR_EMAIL_CODE
+        generateValue: true
+      # Public URL of the claimwise-mocks service, for example https://claimwise-mocks.onrender.com
+      - key: CLAIMWISE_MOCK_URL
+        sync: false
+      # The Vercel URL, for example https://claimwise.vercel.app (comma-separate several)
+      - key: CONNECTOR_ALLOWED_ORIGINS
+        sync: false
