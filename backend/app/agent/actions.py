@@ -39,7 +39,6 @@ from app.agent.submission import (
     submit_via_connector,
 )
 from app.agent.tools import request_pack_approval
-from app.config import get_settings
 
 LABELS = {
     "prepare_pack": "Prepare my claim pack",
@@ -47,7 +46,6 @@ LABELS = {
     "submit_connector": "Submit for me",
     "retry_submit": "Try submitting again",
     "check_submission": "Check submission",
-    "connect": "Connect my insurer account",
     "download_pdf": "Download PDF",
     "download_eml": "Download email draft",
     "submitted_manually": "I submitted it",
@@ -83,7 +81,7 @@ DETERMINISTIC = {"prepare_pack", "review_pack", "submit_connector", "retry_submi
 # Block issues that a button answers directly, so they do not also ask for a corrected upload.
 CHOICE_CODES = {"version_choice", "choose_policy", "authority_withdrawn", "authority_expired", "authority_scope"}
 DECIDED_STAGES = ("decided", "payment_reported", "payment_mismatch", "payment_verified")
-Kind = Literal["send", "upload", "download", "form", "connect", "focus"]
+Kind = Literal["send", "upload", "download", "form", "focus"]
 
 
 def _button(action_id: str, kind: Kind = "send", label: str | None = None, **extra) -> dict:
@@ -91,14 +89,8 @@ def _button(action_id: str, kind: Kind = "send", label: str | None = None, **ext
     return {"id": action_id, "label": label or LABELS[action_id], "kind": kind, **extra}
 
 
-def connector_page() -> str | None:
-    """URL of the connector page when insurer connections are enabled on this server, else None."""
-    settings = get_settings()
-    return settings.connector_page_url if settings.connector_url else None
-
-
 def next_actions(state: AgentState) -> list[dict]:
-    """Buttons for what the user can do next, derived only from state (and whether connectors are enabled).
+    """Buttons for what the user can do next, derived only from state.
 
     Every caller (API response, A1 prompt, off-topic reply, /api/action check) gets the same list.
 
@@ -113,7 +105,6 @@ def next_actions(state: AgentState) -> list[dict]:
     conn = state.get("connection") or {}
     connected = conn.get("status") == "active"
     stage = claim["stage"]
-    page = connector_page()
     out = version_buttons(state)
 
     if stage == "preparing":
@@ -132,8 +123,6 @@ def next_actions(state: AgentState) -> list[dict]:
             out += [_button("check_submission"), _button("retry_submit")]
         elif connected and not (same_pack and sub.get("status") == "refused"):
             out.append(_button("submit_connector"))
-        elif page and not connected:
-            out.append(_button("connect", "connect", href=page))
         out += [_button("download_pdf", "download", format="pdf"), _button("download_eml", "download", format="eml"),
                 _button("submitted_manually", "form"), _button("how_to_submit"), _button("change_pack")]
     elif stage == "submitted":

@@ -43,7 +43,9 @@ export default function DossierCasePanel({ cw, step, progress, onOpenDocument })
           </section>
           <section className="mt-6 space-y-2" aria-labelledby="case-detail-documents">
             <h3 id="case-detail-documents" className={EYEBROW}>Documents · {cw.documents.length}</h3>
-            <Documents documents={cw.documents} onOpen={(item) => { dialog.current.close(); onOpenDocument(item.id) }} />
+            <Documents documents={cw.documents} onOpen={(item) => { dialog.current.close(); onOpenDocument(item.id) }}
+              onRetry={async (id) => { if (!(await cw.retryDocument(id))) dialog.current?.close() }}
+              onDelete={async (id) => { if (!(await cw.deleteDocument(id))) dialog.current?.close() }} busy={cw.busy} />
           </section>
           <Notifications cw={cw} showConnection={false} />
           <CaseRecord cw={cw} />

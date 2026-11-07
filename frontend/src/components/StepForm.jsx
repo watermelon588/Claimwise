@@ -112,19 +112,24 @@ function AuthorityForm({ cw }) {
   const [basis, setBasis] = useState('patient_consent')
   const [scope, setScope] = useState(SCOPES.map(([id]) => id))
   const [expires, setExpires] = useState('')
-  // Start from the latest proof already on file, so recording again after a withdrawal needs no re-upload.
-  const [proof, setProof] = useState(() => cw.documents.findLast((d) => d.doc_type === 'authority_proof' && d.status === 'parsed') ?? null)
+  const saving = cw.activity === 'checking'
+  // Use current evidence, including a proof that finished retrying or was removed from the case.
+  const [proofId, setProofId] = useState(undefined)
+  const proof = cw.documents.findLast((d) => (
+    d.doc_type === 'authority_proof' && d.status === 'parsed' && (proofId === undefined || d.id === proofId)
+  ))
   const needsProof = basis !== 'policyholder'
 
   /** Upload the proof; keep its id only when it was read as an authority document. */
   async function addProof(file) {
     const doc = await cw.upload(file, PROOF)
-    if (doc) setProof(doc)
+    if (doc) setProofId(doc.id)
   }
 
   /** Send the form; the server checks it against the role and the proof. */
   function save(e) {
     e.preventDefault()
+    if (saving || cw.busy) return
     cw.recordAuthority({
       representative_name: name.trim(), basis, scope, expires_on: expires || null,
       proof_doc_id: needsProof ? proof?.id ?? null : null,
@@ -133,7 +138,7 @@ function AuthorityForm({ cw }) {
 
   const toggle = (id) => setScope((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
   return (
-    <form onSubmit={save} className="space-y-8">
+    <form onSubmit={save} className="space-y-8" aria-busy={saving}>
       {cw.authority?.status === 'withdrawn' && (
         <p role="alert" className="rounded-xl bg-coral-soft px-4 py-3 text-sm">Consent was withdrawn. Work on the claim is paused until a new authority is recorded.</p>
       )}
@@ -159,7 +164,7 @@ function AuthorityForm({ cw }) {
             ? (
               <p className="flex flex-wrap items-center gap-2 text-sm">
                 <Check {...ICON} size={14} />{proof.filename} read as proof.
-                <Quiet type="button" onClick={() => setProof(null)} className="h-8 text-xs">Use another file</Quiet>
+                <Quiet type="button" onClick={() => setProofId(null)} className="h-8 text-xs">Use another file</Quiet>
               </p>
             )
             : <DropZone onFile={addProof} busy={cw.busy} label="Drop the signed consent, registration or power of attorney" />}
@@ -181,7 +186,7 @@ function AuthorityForm({ cw }) {
         <input type="date" className={`${FIELD} h-10 w-auto`} value={expires} onChange={(e) => setExpires(e.target.value)} />
       </label>
       <Button type="submit" disabled={cw.busy || !name.trim() || !scope.length || (needsProof && !proof)}>
-        Record authority <ArrowRight {...ICON} />
+        {saving ? 'Recording authority…' : 'Record authority'} <ArrowRight {...ICON} />
       </Button>
     </form>
   )

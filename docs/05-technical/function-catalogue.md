@@ -308,7 +308,7 @@ All routes are under `/api`, and all are internal routes of this prototype. Thre
 
 ## 5. Connector gateway tools
 
-The gateway (`connectors/app.py`, port 8101) stands in for a provider integration that has not been verified to exist. Every agent call carries the server bearer key and a case id. The user grants consent per tool on the connector page; the claim routes below all need the TPA tool `read_claim` (scope `claim.read claim.submit`), which allows submission. Every record the gateway returns is tagged with its source, and removing consent makes the next call fail with 403.
+The gateway (`connectors/app.py`, port 8101) stands in for a provider integration that has not been verified to exist. Every agent call carries the server bearer key and a case id. The user grants consent per tool in the in-app Connect tools panel; the claim routes below all need the TPA tool `read_claim` (scope `claim.read claim.submit`), which allows submission. Every record the gateway returns is tagged with its source, and removing consent makes the next call fail with 403.
 
 | Tool (agent path) | Consent needed | Payer call | Errors |
 |---|---|---|---|

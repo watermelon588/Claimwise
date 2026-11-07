@@ -1,11 +1,89 @@
 """Smoke tests for the API wiring. No LLM key or database needed."""
 
 import json
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.main import app
+
+
+def test_failed_upload_retry_and_permanent_deletion(monkeypatch, tmp_path):
+    """Retry by button and reupload, then erase the file, checkpoint history and session."""
+    from app.agent import graph, onboarding
+    from app.config import get_settings
+
+    class Model:
+        """Return a reply with no document content."""
+
+        def invoke(self, _messages):
+            """Simulate the same outage on the first reply after a failed extraction."""
+            if len(attempts) == 1 and next(iter(attempts.values())) == 1:
+                raise RuntimeError("Synthetic reply outage")
+            return AIMessage("Noted.")
+
+    attempts = {}
+
+    def extract(document):
+        """Simulate a provider failure on the first attempt for each file."""
+        doc_id = document["id"]
+        attempts[doc_id] = attempts.get(doc_id, 0) + 1
+        if attempts[doc_id] == 1:
+            raise RuntimeError("Synthetic provider failure")
+        assert Path(document["path"]).read_bytes().startswith(b"%PDF")
+        return onboarding.DocumentExtraction(doc_type="hospital_bill")
+
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setenv("LANGSMITH_API_KEY", "")
+    monkeypatch.setattr(graph, "get_llm", lambda _tools: Model())
+    monkeypatch.setattr(onboarding, "extract_document", extract)
+    get_settings.cache_clear()
+
+    def upload(client, thread, name, content):
+        """Send a synthetic PDF through the multipart upload route."""
+        return client.post("/api/documents", data={"thread_id": thread},
+                           files={"file": (name, b"%PDF" + content, "application/pdf")})
+
+    try:
+        with TestClient(app) as client:
+            thread = "file-controls"
+            prefix = f"/api/thread/{thread}/documents"
+            config = {"configurable": {"thread_id": thread}}
+            first = upload(client, thread, "first.pdf", b"first").json()
+            first_id = first["processed_document_id"]
+            assert first["documents"][0]["status"] == "failed"
+            retried = client.post(f"{prefix}/{first_id}/retry").json()
+            assert retried["processed_document_id"] == first_id
+            assert [d["status"] for d in retried["documents"]] == ["parsed"]
+            assert sum(m["text"] == "Uploaded first.pdf" for m in retried["history"]) == 1
+            assert upload(client, thread, "first.pdf", b"first").status_code == 409
+
+            failed = upload(client, thread, "second.pdf", b"second").json()
+            second_id = failed["processed_document_id"]
+            resent = upload(client, thread, "renamed.pdf", b"second").json()
+            assert resent["processed_document_id"] == second_id
+            assert len(resent["documents"]) == 2
+
+            other = upload(client, "other-session", "other.pdf", b"other").json()["processed_document_id"]
+            deleted = client.delete(f"{prefix}/{first_id}")
+            assert deleted.status_code == 200, deleted.text
+            assert [d["id"] for d in deleted.json()["documents"]] == [second_id]
+            assert not (tmp_path / thread / f"{first_id}.pdf").exists()
+            saver = client.app.state.graph.checkpointer
+            checkpoints = list(saver.list(config))
+            assert checkpoints
+            assert first_id not in repr(checkpoints)
+
+            assert client.delete(f"/api/thread/{thread}").status_code == 204
+            assert client.delete(f"/api/thread/{thread}").status_code == 204
+            assert not list(saver.list(config))
+            assert not (tmp_path / thread).exists()
+            assert (tmp_path / "other-session" / f"{other}.pdf").is_file()
+            assert [t["thread_id"] for t in client.get(f"/api/threads?ids={thread},other-session").json()] == ["other-session"]
+    finally:
+        get_settings.cache_clear()
 
 
 def test_health_and_chat_without_llm_key(monkeypatch):

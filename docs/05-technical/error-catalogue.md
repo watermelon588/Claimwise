@@ -4,7 +4,7 @@
 
 | Signal | Meaning | User or operator recovery |
 | --- | --- | --- |
-| 400 on link | Connection code is invalid, expired, or missing the TPA grant. | Open the mock connection page again, grant access, and use the current code. |
+| 400 on link | Case id is invalid, expired, or missing the TPA grant. | Verify the case again under Connect tools and approve Medivista TPA. |
 | 401 on webhook | Signature verification failed. | Verify the shared secret and signing of the raw request body. Inspect the sender before retrying. |
 | 404 on an original or connector read | Original unavailable in the current pack, or gateway tool/fixture is missing. | Check the ready pack and correct source document or mock case. |
 | 409 on upload | Same bytes already stored for the thread. | Use the earlier copy or upload a corrected file with different bytes. |

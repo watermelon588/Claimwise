@@ -1,5 +1,5 @@
 // Collapsible thread history sidebar (Claude Code / Codex harness style) for switching Claimwise sessions.
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   FileText,
   Home,
@@ -33,11 +33,10 @@ const STAGE_BADGES = {
  * @param {{cw: object, user: object|null, onGoHome: () => void, onSignOut: () => void}} props
  */
 export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
-  const [open, setOpen] = useState(false)
+  const drawer = useRef(null)
   const [query, setQuery] = useState('')
 
   const activeThread = cw.threads.find((t) => t.thread_id === cw.threadId)
-  const shortActiveId = cw.threadId ? cw.threadId.slice(0, 8) : '--------'
 
   const filtered = cw.threads.filter((item) => {
     const q = query.trim().toLowerCase()
@@ -49,87 +48,49 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
     )
   })
 
-  useEffect(() => {
-    if (!open) return undefined
-    function onKeyDown(e) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open])
-
+  /** Open an existing session and return focus to the workspace. */
   function handleSelect(id) {
     cw.selectThread(id)
-    setOpen(false)
+    drawer.current.close()
   }
 
+  /** Start a blank claim from the vertical session list. */
   function handleCreate() {
-    cw.createThread()
-    setOpen(false)
+    if (cw.createThread()) drawer.current.close()
+  }
+
+  /** Confirm deletion before asking the server to erase the session. */
+  async function handleDelete(item) {
+    if (window.confirm(`Permanently delete “${item.title}” and its conversation and uploads?`)) {
+      const deleted = await cw.deleteThread(item.thread_id)
+      if (!deleted) drawer.current?.close()
+    }
   }
 
   return (
     <>
-      {/* One toolbar groups the workspace controls without hiding their actions. */}
-      <div role="group" aria-label="Claim workspace controls" className="fixed top-4 right-4 z-40 inline-flex divide-x divide-line overflow-hidden rounded-xl border border-line bg-paper text-ink lg:top-20 lg:right-6">
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => drawer.current.showModal()}
           aria-label="Open claim sessions"
-          aria-expanded={open}
+          aria-haspopup="dialog"
           aria-controls="claim-thread-history"
           title={activeThread?.title || 'Open claim sessions'}
-          className="inline-flex min-h-10 items-center gap-1.5 px-2.5 text-xs font-semibold transition-colors hover:bg-milk-deep focus-visible:-outline-offset-2 lg:px-3"
+          className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-milk/15 px-2.5 text-xs font-medium hover:bg-milk/10"
         >
           <PanelLeftOpen {...ICON} size={14} className="text-coral" />
-          <span className="hidden lg:inline">Sessions</span>
-          <span className="rounded-md bg-ink/8 px-1.5 py-0.5 font-mono text-[10px] font-normal text-muted">
+          <span>Sessions</span>
+          <span className="rounded-md bg-milk/10 px-1.5 py-0.5 font-mono text-[10px] text-milk/70">
             {cw.threads.length}
           </span>
         </button>
 
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={cw.busy}
-          title="Start a new claim thread"
-          aria-label="Start a new claim thread"
-          className="inline-flex min-h-10 items-center gap-1.5 px-2.5 text-xs font-semibold transition-colors hover:bg-milk-deep focus-visible:-outline-offset-2 disabled:opacity-40 lg:px-3"
-        >
-          <Plus {...ICON} size={14} className="text-coral" />
-          <span className="hidden lg:inline">New</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onGoHome}
-          title="Back to Claimwise Home"
-          className="inline-flex min-h-10 items-center gap-1.5 px-2.5 text-xs font-semibold transition-colors hover:bg-milk-deep focus-visible:-outline-offset-2 lg:px-3"
-          aria-label="Back to Claimwise Home"
-        >
-          <Home {...ICON} size={14} />
-          <span className="hidden lg:inline">Home</span>
-        </button>
-      </div>
-
-      {/* Backdrop when drawer is open */}
-      {open && (
-        <div
-          className="fixed inset-0 z-50 bg-ink/45 backdrop-blur-[2px] transition-opacity"
-          onClick={() => setOpen(false)}
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Collapsible Claude Code / Codex style Thread Harness Sidebar */}
-      <aside
+      <dialog
+        ref={drawer}
         id="claim-thread-history"
-        aria-label="Claim thread history"
-        aria-hidden={!open}
+        aria-label="Claim sessions"
         data-lenis-prevent
-        className={`on-ink fixed inset-y-0 left-0 z-50 flex w-[22rem] max-w-[90vw] flex-col border-r border-milk/12 bg-ink text-milk shadow-2xl transition-transform duration-300 ease-out ${
-          open ? 'translate-x-0' : '-translate-x-full pointer-events-none'
-        }`}
+        className="on-ink fixed inset-y-0 left-0 right-auto m-0 h-dvh max-h-none w-[22rem] max-w-[90vw] flex-col border-r border-milk/12 bg-ink p-0 text-milk shadow-2xl backdrop:bg-ink/45 open:flex"
       >
         {/* Header */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-milk/10 px-5">
@@ -141,7 +102,7 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
           </div>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={() => drawer.current.close()}
             className="inline-flex size-8 items-center justify-center rounded-lg text-milk/60 transition-colors hover:bg-milk/10 hover:text-milk"
             aria-label="Close thread history sidebar"
           >
@@ -161,7 +122,6 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
               <Plus {...ICON} size={15} />
               <span>New Claim Session</span>
             </span>
-            <span className="font-mono text-[10px] opacity-80">#{shortActiveId}</span>
           </button>
 
           {cw.threads.length > 3 && (
@@ -183,7 +143,7 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
         </div>
 
         {/* Thread list */}
-        <div className="flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
+        <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
           <div className="flex items-center justify-between px-2 py-1">
             <span className={`${EYEBROW} text-milk/45`}>Sessions</span>
             <span className="font-mono text-[10px] text-milk/40">{filtered.length}</span>
@@ -206,7 +166,9 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
                 <button
                   type="button"
                   onClick={() => handleSelect(item.thread_id)}
-                  className="min-w-0 flex-1 text-left"
+                  disabled={cw.busy}
+                  aria-current={isCurrent ? 'true' : undefined}
+                  className="min-w-0 flex-1 text-left disabled:opacity-65"
                 >
                   <div className="flex items-center gap-2">
                     <span
@@ -248,10 +210,11 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
 
                 <button
                   type="button"
-                  onClick={() => cw.deleteThread(item.thread_id)}
-                  title="Remove session from sidebar"
-                  aria-label={`Remove ${item.title || 'session'}`}
-                  className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-milk/35 opacity-0 transition-opacity hover:bg-milk/10 hover:text-coral group-hover:opacity-100 focus:opacity-100"
+                  onClick={() => handleDelete(item)}
+                  disabled={cw.busy}
+                  title="Delete session"
+                  aria-label={`Delete ${item.title || 'session'}`}
+                  className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-milk/60 hover:bg-milk/10 hover:text-coral disabled:opacity-40"
                 >
                   <Trash2 {...ICON} size={13} />
                 </button>
@@ -267,7 +230,7 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
         </div>
 
         {/* Footer with user profile + Home navigation */}
-        <div className="border-t border-milk/10 bg-milk/[0.03] p-4 space-y-2.5">
+        <div className="shrink-0 border-t border-milk/10 bg-milk/[0.03] p-4 space-y-2.5">
           {user && (
             <div className="flex items-center justify-between gap-2 rounded-xl border border-milk/10 bg-ink px-3 py-2">
               <div className="min-w-0">
@@ -279,7 +242,7 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
               <button
                 type="button"
                 onClick={() => {
-                  setOpen(false)
+                  drawer.current.close()
                   onSignOut()
                 }}
                 title="Sign out"
@@ -294,7 +257,7 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
           <button
             type="button"
             onClick={() => {
-              setOpen(false)
+              drawer.current.close()
               onGoHome()
             }}
             className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-milk/15 bg-milk/5 text-xs font-light text-milk/85 transition-colors hover:bg-milk/12"
@@ -303,7 +266,7 @@ export default function HistorySidebar({ cw, user, onGoHome, onSignOut }) {
             <span>Home</span>
           </button>
         </div>
-      </aside>
+      </dialog>
     </>
   )
 }

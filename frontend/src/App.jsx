@@ -91,14 +91,8 @@ export default function App() {
   }
 
   return (
-    <>
-      <HistorySidebar
-        cw={cw}
-        user={user}
-        onGoHome={() => switchMode('landing')}
-        onSignOut={handleSignOut}
-      />
-      <Dossier cw={cw} view={buildView(cw)} />
-    </>
+    <Dossier cw={cw} view={buildView(cw)} sessionControls={
+      <HistorySidebar cw={cw} user={user} onGoHome={() => switchMode('landing')} onSignOut={handleSignOut} />
+    } />
   )
 }

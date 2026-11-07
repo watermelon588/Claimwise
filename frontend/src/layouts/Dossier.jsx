@@ -49,10 +49,10 @@ function CaseFacts({ cw, view }) {
 
 /**
  * Dossier layout.
- * @param {{cw: object, view: object}} props
+ * @param {{cw: object, view: object, sessionControls: React.ReactNode}} props
  * @returns {JSX.Element}
  */
-export default function Dossier({ cw, view }) {
+export default function Dossier({ cw, view, sessionControls }) {
   const root = useRef(null)
   const [review, setReview] = useState(null)
   const doc = cw.documents.find((item) => item.id === review?.id)
@@ -80,8 +80,9 @@ export default function Dossier({ cw, view }) {
   return (
     <div ref={root} className="min-h-dvh lg:pl-[22rem]">
       <aside className="on-ink flex flex-col bg-ink text-milk lg:fixed lg:inset-y-0 lg:left-0 lg:w-[22rem] lg:overflow-y-auto" data-lenis-prevent>
-        <div className="flex h-16 shrink-0 items-center border-b border-milk/10 px-6">
+        <div className="flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-milk/10 px-6 py-2">
           <Brand />
+          {sessionControls}
         </div>
         <div className="space-y-9 px-6 py-7">
           <section className="flex items-center gap-3 rounded-xl border border-milk/12 bg-milk/5 px-3 py-2.5" aria-label="Pip, your claim assistant">
@@ -100,7 +101,8 @@ export default function Dossier({ cw, view }) {
           </section>
           <section data-enter aria-labelledby="docs-title" className={`space-y-3 ${cw.documents.length ? '' : 'hidden lg:block'}`}>
             <h2 id="docs-title" className={`${EYEBROW} text-milk/50`}>Documents</h2>
-            <Documents documents={cw.documents} onOpen={(item) => openDoc(item.id)} dark />
+            <Documents documents={cw.documents} onOpen={(item) => openDoc(item.id)}
+              onRetry={cw.retryDocument} onDelete={cw.deleteDocument} busy={cw.busy} dark />
             <FilePick onFile={cw.upload} disabled={cw.busy} invert className="w-full">Add a document</FilePick>
           </section>
         </div>

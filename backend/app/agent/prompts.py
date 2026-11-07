@@ -202,7 +202,7 @@ ROUTE_MANUAL = (
 )
 NEED_APPROVAL_REPLY = "Approve the current claim pack first. Press 'Prepare my claim pack'."
 NEED_CONNECTION_REPLY = (
-    "Your insurer account is not connected. Connect it from the connector page, or submit the pack yourself."
+    "Your insurer account is not connected. Connect Medivista TPA under Connect tools, or submit the pack yourself."
 )
 ALREADY_SUBMITTED_REPLY = "This pack was already submitted on {date}. Claim number: {claim_id}."
 SUBMITTED_REPLY = (

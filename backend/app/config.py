@@ -34,7 +34,6 @@ class Settings(BaseSettings):
     # Mock connector gateway (connectors/app.py). Empty url or key means "not connected": manual route only.
     connector_url: str = ""
     connector_agent_key: str = ""
-    connector_page_url: str = "http://127.0.0.1:8101/"
     # Shared secret for the mock payer's signed webhooks; empty disables the webhook endpoint.
     mock_webhook_secret: str = ""
     # Observability: LangSmith tracing turns on when the key is set (synthetic data only); trace_log is a local

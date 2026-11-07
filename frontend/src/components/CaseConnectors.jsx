@@ -198,7 +198,7 @@ export default function CaseConnectors({ cw }) {
             <form onSubmit={verify} className="space-y-3 rounded-2xl border border-line bg-paper p-4">
               <h3 className="text-sm font-semibold">Verify this demo case</h3>
               <p className="text-xs leading-relaxed text-muted">Use the demo workspace setup code displayed by the local connector service.</p>
-              <label className="block space-y-1 text-xs font-semibold">
+              <label className="flex flex-col gap-2 text-xs font-semibold">
                 <span>Workspace verification code</span>
                 <input className={FIELD} type="password" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" maxLength={128} required />
               </label>
@@ -216,7 +216,7 @@ export default function CaseConnectors({ cw }) {
               {selectedTool && (
                 <form onSubmit={connect} className="space-y-3 rounded-2xl border border-coral/50 bg-paper p-4">
                   <h3 className="text-sm font-semibold">Approve {selectedTool.name}</h3>
-                  <label className="block space-y-1 text-xs font-semibold">
+                  <label className="flex flex-col gap-2 text-xs font-semibold">
                     <span>Demo provider sign-in code</span>
                     <input autoFocus className={FIELD} type="password" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" maxLength={128} required />
                   </label>
