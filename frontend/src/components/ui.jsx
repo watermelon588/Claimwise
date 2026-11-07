@@ -7,11 +7,18 @@ import { ICON } from './tokens.js'
 const BASE =
   'inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-[background-color,border-color,color,scale] duration-200 ease-out active:scale-[.97] disabled:pointer-events-none disabled:opacity-40'
 const ACCEPT = '.pdf,.png,.jpg,.jpeg'
+// The one action that moves the claim forward now: coral with ink text (milk on coral fails contrast) and a soft halo.
+const ACCENT = 'bg-coral font-semibold text-ink ring-4 ring-coral-soft hover:bg-coral-ink hover:text-milk'
 
 /** Solid button. invert=true on ink backgrounds. */
 export function Button({ invert, className = '', ...props }) {
   const tone = invert ? 'bg-milk text-ink hover:bg-white' : 'bg-ink text-milk hover:bg-ink-soft'
   return <button type="button" className={`${BASE} px-4 ${tone} ${className}`} {...props} />
+}
+
+/** Accent button for the next step the user should take. Use at most one per view. */
+export function Accent({ className = '', ...props }) {
+  return <button type="button" className={`${BASE} px-4 ${ACCENT} ${className}`} {...props} />
 }
 
 /** Text-only button for secondary actions. */
@@ -33,10 +40,12 @@ function picked(e, onFile) {
 
 /**
  * File chooser styled as a button. iconOnly renders a square paperclip button (needs a label).
- * @param {{onFile: (f: File) => void, disabled?: boolean, invert?: boolean, iconOnly?: boolean, children?: string, className?: string}} props
+ * accent marks the upload as the next step (see Accent).
+ * @param {{onFile: (f: File) => void, disabled?: boolean, invert?: boolean, accent?: boolean, iconOnly?: boolean, children?: string, className?: string}} props
  */
-export function FilePick({ onFile, disabled, invert, iconOnly, children = 'Upload', className = '' }) {
-  const tone = invert ? 'border-milk/20 text-milk hover:border-milk/60' : 'border-line bg-paper text-ink hover:border-ink'
+export function FilePick({ onFile, disabled, invert, accent, iconOnly, children = 'Upload', className = '' }) {
+  const tone = accent ? `border-coral ${ACCENT}`
+    : invert ? 'border-milk/20 text-milk hover:border-milk/60' : 'border-line bg-paper text-ink hover:border-ink'
   return (
     <label
       aria-label={iconOnly ? children : undefined}

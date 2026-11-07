@@ -1,7 +1,7 @@
 // Approval card for a grievance or Ombudsman letter (DEV-026). The letter is built from the decision facts on the
 // server; nothing is sent by Claimwise, the user sends it after approving.
 import { Check } from 'lucide-react'
-import { Button, Quiet } from './ui.jsx'
+import { Accent, Quiet } from './ui.jsx'
 import { EYEBROW, ICON } from './tokens.js'
 
 const TITLES = {
@@ -27,7 +27,7 @@ export default function ApproveLetter({ pending, onAnswer, busy }) {
         <pre className="max-h-96 overflow-auto rounded-xl bg-milk p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap" data-lenis-prevent>{pending.letter}</pre>
       </div>
       <footer className="flex flex-wrap items-center gap-2 border-t border-line bg-milk/50 px-5 py-4 sm:px-6">
-        <Button onClick={() => onAnswer(true)} disabled={busy}><Check {...ICON} /> Approve letter</Button>
+        <Accent onClick={() => onAnswer(true)} disabled={busy}><Check {...ICON} /> Approve letter</Accent>
         <Quiet onClick={() => onAnswer(false)} disabled={busy}>Not yet</Quiet>
         <span className="ml-auto text-xs text-muted">You send it yourself. Claimwise records the date.</span>
       </footer>

@@ -2,7 +2,7 @@
 // compact stacks the control under the text for narrow side columns.
 import { useState } from 'react'
 import { ArrowUpRight, CircleAlert, Info } from 'lucide-react'
-import { Button, FilePick, Outline } from './ui.jsx'
+import { Accent, Button, FilePick, Outline } from './ui.jsx'
 import { FIELD, ICON } from './tokens.js'
 
 const TONE = {
@@ -31,7 +31,7 @@ export function Submitted({ cw }) {
     <form onSubmit={save} className="grid w-full gap-2 sm:grid-cols-[auto_1fr_auto]">
       <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date you submitted" className={`${FIELD} h-10`} />
       <input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="Claim number (optional)" aria-label="Claim number" className={`${FIELD} h-10`} />
-      <Button type="submit" disabled={cw.busy || !date}>Save</Button>
+      <Accent type="submit" disabled={cw.busy || !date}>Save</Accent>
     </form>
   )
 }
@@ -49,7 +49,7 @@ function Action({ alert, cw }) {
         </div>
       )
     case 'prepare':
-      return <Button onClick={() => { const a = offered(cw, 'prepare_pack', 'review_pack'); if (a) cw.act(a); else cw.say('Please prepare my claim pack for approval.') }} disabled={cw.busy || Boolean(cw.pending)}>Build claim pack</Button>
+      return <Accent onClick={() => { const a = offered(cw, 'prepare_pack', 'review_pack'); if (a) cw.act(a); else cw.say('Please prepare my claim pack for approval.') }} disabled={cw.busy || Boolean(cw.pending)}>Build claim pack</Accent>
     case 'submitted':
       return <Submitted cw={cw} />
     case 'explain':
