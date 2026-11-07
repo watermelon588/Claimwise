@@ -50,4 +50,4 @@ Open [Claimwise](http://localhost:5173/), [the case workspace](http://localhost:
 
 ## Deployment and data
 
-The [deployment guide](frontend/DEPLOYMENT.md) covers a manual Vercel frontend preview and separate Python service hosting. Use synthetic records. The prototype's guest workspace and mock admin routes require additional access controls before handling real claim data. [Data handling and permissions](docs/05-technical/actions-permissions-and-data.md)
+The [hosting guide](docs/07-delivery/hosting.md) deploys the frontend on Vercel and the agent API, mock providers and connector gateway on Render from [render.yaml](render.yaml). Use synthetic records. The prototype's guest workspace and mock admin routes require additional access controls before handling real claim data. [Data handling and permissions](docs/05-technical/actions-permissions-and-data.md)

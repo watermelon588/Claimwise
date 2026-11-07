@@ -45,6 +45,37 @@ class DemoKeys:
         default_factory=lambda: {provider: secrets.token_urlsafe(18) for provider in PROVIDERS}
     )
 
+    @classmethod
+    def from_env(cls) -> tuple["DemoKeys", list[tuple[str, str]]]:
+        """Read hosted codes from the environment; generate any that are unset.
+
+        Hosting has no terminal to read printed codes from, so the operator sets CONNECTOR_AGENT_KEY (the same
+        value as the backend's), CONNECTOR_ONBOARDING_CODE, CONNECTOR_EMAIL_CODE and CONNECTOR_<PROVIDER>_CODE.
+
+        Returns:
+            The keys, and (label, value) pairs for the generated ones only, so configured secrets never reach logs.
+        """
+        made, generated = cls(), []
+
+        def pick(var: str, label: str, fallback: str) -> str:
+            value = os.environ.get(var, "").strip()
+            if not value:
+                generated.append((label, fallback))
+            return value or fallback
+
+        keys = cls(
+            onboarding=pick("CONNECTOR_ONBOARDING_CODE", "onboarding code", made.onboarding),
+            agent=pick("CONNECTOR_AGENT_KEY", "server bearer key", made.agent),
+            email=pick("CONNECTOR_EMAIL_CODE", "email sign-in code", made.email),
+            providers={p: pick(f"CONNECTOR_{p.upper()}_CODE", f"{p} sign-in code", code) for p, code in made.providers.items()},
+        )
+        return keys, generated
+
+
+def allowed(var: str, defaults: list[str]) -> list[str]:
+    """Defaults plus the comma-separated values of an environment variable."""
+    return defaults + [v.strip() for v in os.environ.get(var, "").split(",") if v.strip()]
+
 
 @dataclass
 class Session:
@@ -113,34 +144,36 @@ def fail(status: int, code: str) -> HTTPException:
 def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     """Create a local-only gateway, with optional in-process test credentials and transport."""
     sessions: dict[str, Session] = {}
-    credentials = keys or DemoKeys()
+    credentials, generated = (keys, []) if keys else DemoKeys.from_env()
+    # Hosted: the frontend's origin (it proxies /connector-api here) and Render's own hostname are allowed too.
+    origins = allowed("CONNECTOR_ALLOWED_ORIGINS", [])
+    hosts = allowed("CONNECTOR_ALLOWED_HOSTS", ["127.0.0.1", "localhost"] + (
+        [os.environ["RENDER_EXTERNAL_HOSTNAME"]] if os.environ.get("RENDER_EXTERNAL_HOSTNAME") else []))
+    mock_url = os.environ.get("CLAIMWISE_MOCK_URL") or f"http://127.0.0.1:{int(os.environ.get('CLAIMWISE_MOCK_PORT', '8100'))}"
 
     @asynccontextmanager
     async def lifespan(gateway: FastAPI):
-        """Enable the synthetic demo explicitly and open one pooled loopback client."""
+        """Enable the synthetic demo explicitly and open one pooled client to the mock providers."""
         if keys is None:
             if os.environ.get("CLAIMWISE_CONNECTOR_DEMO") != "1":
                 raise RuntimeError("Set CLAIMWISE_CONNECTOR_DEMO=1 to enable the local synthetic demo")
-            print("Local demo onboarding code:", credentials.onboarding, flush=True)
-            for provider, code in credentials.providers.items():
-                print(f"Local demo {provider} sign-in code: {code}", flush=True)
-            print("Local demo email sign-in code:", credentials.email, flush=True)
-            print("Local demo server bearer key:", credentials.agent, flush=True)
+            for label, value in generated:  # only generated codes; configured ones stay out of the logs
+                print(f"Local demo {label}: {value}", flush=True)
         async with httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{int(os.environ.get('CLAIMWISE_MOCK_PORT', '8100'))}",
-            transport=transport, timeout=5, follow_redirects=False, trust_env=False,
+            base_url=mock_url, transport=transport, timeout=5, follow_redirects=False, trust_env=False,
         ) as client:
             gateway.state.provider_client = client
             yield
 
     gateway = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
-    gateway.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
+    gateway.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
 
     @gateway.middleware("http")
     async def protect_response(request: Request, call_next):
-        """Require same-origin browser mutations and mark all responses non-cacheable."""
+        """Require same-origin (or configured frontend) browser mutations and mark all responses non-cacheable."""
         origin = request.headers.get("origin")
-        if request.method in {"POST", "DELETE"} and origin and origin != str(request.base_url).rstrip("/"):
+        same = origin == str(request.base_url).rstrip("/") or origin in origins
+        if request.method in {"POST", "DELETE"} and origin and not same:
             response = JSONResponse({"detail": {"code": "ORIGIN_DENIED"}}, status_code=403)
         else:
             response = await call_next(request)

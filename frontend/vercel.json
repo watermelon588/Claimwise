@@ -8,31 +8,79 @@
     {
       "source": "/api/:path*",
       "headers": [
-        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
-        { "key": "Cache-Control", "value": "private, no-store" }
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        }
       ]
     },
     {
       "source": "/mock-api/:path*",
       "headers": [
-        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
-        { "key": "Cache-Control", "value": "private, no-store" }
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        }
+      ]
+    },
+    {
+      "source": "/connector-api/:path*",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "private, no-store"
+        }
       ]
     }
   ],
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://claimwise-backend.example.invalid/api/:path*"
+      "destination": "https://claimwise-backend.onrender.com/api/:path*"
     },
     {
       "source": "/mock-api/:path*",
-      "destination": "https://claimwise-mocks.example.invalid/:path*"
+      "destination": "https://claimwise-mocks.onrender.com/:path*"
     },
-    { "source": "/app", "destination": "/index.html" },
-    { "source": "/mocks", "destination": "/index.html" },
-    { "source": "/policy", "destination": "/index.html" },
-    { "source": "/privacy", "destination": "/index.html" },
-    { "source": "/terms", "destination": "/index.html" }
+    {
+      "source": "/connector-api/api/connectors",
+      "destination": "https://claimwise-connectors.onrender.com/api/connectors"
+    },
+    {
+      "source": "/connector-api/api/connectors/:path*",
+      "destination": "https://claimwise-connectors.onrender.com/api/connectors/:path*"
+    },
+    {
+      "source": "/app",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/mocks",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/policy",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/terms",
+      "destination": "/index.html"
+    }
   ]
 }
