@@ -120,3 +120,7 @@ Replace the demo code flow with the partner's actual sign-in and authorization p
 `mocks/.venv/Scripts/python.exe -m pytest -q connectors` runs the focused tests from the repository root. The integration test seeds a disposable mock database and uses the existing payer, hospital and bank handlers. Other tests exercise unverified and cross-case access, explicit consent, bad provider responses, and revocation while a read is in flight.
 
 See [mock architecture and routes](mock-services-architecture-and-routes.md) for the full upstream API and the [mock site guide](../../mocks/mock.markdown) for existing fixtures.
+
+---
+
+Previous: [Actions, permissions and data](actions-permissions-and-data.md) | [Index](../../README.md) | Next: [External systems and mock services](external-systems-and-mocks.md)

@@ -42,4 +42,4 @@ Use the policy confirmation fields to correct extraction or add a corrected docu
 
 ---
 
-Previous: [Actions, permissions and data](../05-technical/actions-permissions-and-data.md) | [Index](../../README.md) | Next: [Implementation plan](../07-delivery/implementation-plan.md)
+Previous: [Complete journeys](journeys.md) | [Index](../../README.md) | Next: [Phased implementation plan](../07-delivery/implementation-plan.md)

@@ -34,4 +34,4 @@ The caregiver record describes authority and proof in the prototype. The externa
 
 ---
 
-Previous: [Index](../README.md) | [Index](../README.md) | Next: [Evidence register](02-research/evidence-register.md)
+[Index](../README.md) | Next: [Evidence register](02-research/evidence-register.md)

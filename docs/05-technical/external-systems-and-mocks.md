@@ -256,3 +256,7 @@ Mismatch knobs on M1 `pay`: `credit_amount_override`, `credit_delay_days`, `utr_
 - PDF library choice (needs approval).
 - Console as plain HTML or a small Vite app.
 - Whether M2 to M1 calls go over HTTP inside the same process or direct function calls (either is fine; HTTP shows the boundary better).
+
+---
+
+Previous: [Mock provider connectors](provider-connectors.md) | [Index](../../README.md) | Next: [Mock External Systems: Architecture and Routes Documentation](mock-services-architecture-and-routes.md)

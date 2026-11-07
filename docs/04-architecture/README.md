@@ -15,8 +15,8 @@ Read G1 first for the overview, then G3 for the execution overview. G2, G4 and G
 
 ## Editing the graphs
 
-- G1 is drawn by hand. Open the `.excalidraw` file at excalidraw.com (File, Open), edit, then export the SVG to `docs/diagrams/export/`.
-- G2 to G5 are generated from one layout each by [make_graphs.py](../diagrams/make_graphs.py), which writes both the `.excalidraw` source and the SVG. Run `python docs/diagrams/make_graphs.py` from the repository root. Change the layout in the script, not in Excalidraw, or the next run overwrites the edit.
+- G1 and G4 are drawn in Excalidraw. Open the `.excalidraw` file at excalidraw.com (File, Open), edit, then export the SVG to `docs/diagrams/export/`.
+- G2, G3 and G5 are generated from one layout each by [make_graphs.py](../diagrams/make_graphs.py), which writes both the `.excalidraw` source and the SVG. Run `python docs/diagrams/make_graphs.py` from the repository root. Change the layout in the script, not in Excalidraw, or the next run overwrites the edit.
 
 ## Shared legend
 
@@ -75,3 +75,7 @@ The same ids are used in all graphs, the code comments and the [function catalog
 ## How the graphs were checked
 
 Each graph was compared with the code (`graph.py`, `state.py`, `routes.py`) and with the live run recorded in [validation-plan.md](../07-delivery/validation-plan.md). Graph statements that the run exercised carry the spec id (for example V-10 for the single claim after a lost answer, V-34 for a pause surviving a restart).
+
+---
+
+Previous: [Branch matrix](../03-lifecycle/branch-matrix.md) | [Index](../../README.md) | Next: [G1 Product context](g1-product-context.md)

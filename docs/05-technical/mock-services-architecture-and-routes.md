@@ -408,3 +408,7 @@ tests/test_payer_arithmetic.py::test_clause_validation_failure PASSED
 
 13 passed in 38.27s
 ```
+
+---
+
+Previous: [External systems and mock services](external-systems-and-mocks.md) | [Index](../../README.md) | Next: [Complete journeys](../06-experience/journeys.md)

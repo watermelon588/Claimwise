@@ -1457,7 +1457,7 @@
    "x": 30,
    "y": 330,
    "width": 360,
-   "height": 215,
+   "height": 250,
    "roundness": {
     "type": 3
    }
@@ -1481,11 +1481,11 @@
    "locked": false,
    "type": "text",
    "x": 34.0,
-   "y": 361.6,
+   "y": 365.35,
    "width": 352,
-   "height": 151.25,
-   "text": "API  v0.8\nPOST /api/documents (same file twice -> 409)\nPOST /api/chat (+ /stream), /api/resume\n/resume checks policy corrections (422)\nPOST /api/action -> button press (X1)\nPOST /api/claim-type (no model)\nGET /api/thread/{id} -> refresh (M1..C1)\nGET /api/threads?ids= (own ids only)\nPOST /api/connection, /authority (+ /withdraw)\nGET /api/pack/{id} (+ /pdf, /eml)\nPOST /api/webhooks/mock (HMAC) -> refresh",
-   "originalText": "API  v0.8\nPOST /api/documents (same file twice -> 409)\nPOST /api/chat (+ /stream), /api/resume\n/resume checks policy corrections (422)\nPOST /api/action -> button press (X1)\nPOST /api/claim-type (no model)\nGET /api/thread/{id} -> refresh (M1..C1)\nGET /api/threads?ids= (own ids only)\nPOST /api/connection, /authority (+ /withdraw)\nGET /api/pack/{id} (+ /pdf, /eml)\nPOST /api/webhooks/mock (HMAC) -> refresh",
+   "height": 178.75,
+   "text": "API  v0.8 (+ delete and retry, 2026-11-07)\nPOST /api/documents (same file twice -> 409)\nPOST /api/chat (+ /stream), /api/resume\n/resume checks policy corrections (422)\nPOST /api/action -> button press (X1)\nPOST /api/claim-type (no model)\nGET /api/thread/{id} -> refresh (M1..C1)\nGET /api/threads?ids= (own ids only)\nPOST /api/connection, /authority (+ /withdraw)\nGET /api/pack/{id} (+ /pdf, /eml)\nPOST /api/webhooks/mock (HMAC) -> refresh\nPOST /api/thread/{id}/documents/{doc}/retry\nDELETE /api/thread/{id} (+ /documents/{doc})",
+   "originalText": "API  v0.8 (+ delete and retry, 2026-11-07)\nPOST /api/documents (same file twice -> 409)\nPOST /api/chat (+ /stream), /api/resume\n/resume checks policy corrections (422)\nPOST /api/action -> button press (X1)\nPOST /api/claim-type (no model)\nGET /api/thread/{id} -> refresh (M1..C1)\nGET /api/threads?ids= (own ids only)\nPOST /api/connection, /authority (+ /withdraw)\nGET /api/pack/{id} (+ /pdf, /eml)\nPOST /api/webhooks/mock (HMAC) -> refresh\nPOST /api/thread/{id}/documents/{doc}/retry\nDELETE /api/thread/{id} (+ /documents/{doc})",
    "fontSize": 11,
    "fontFamily": 2,
    "textAlign": "center",

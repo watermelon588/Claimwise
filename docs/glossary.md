@@ -64,4 +64,4 @@ Terms used across the documents. Insurance terms follow their common Indian usag
 
 ---
 
-Previous: [Decisions](decisions.md) | [Index](../README.md) | Next: [Evidence register](02-research/evidence-register.md)
+Previous: [Decisions and assumptions](decisions.md) | [Index](../README.md)

@@ -1,6 +1,6 @@
 # Function catalogue
 
-Status: written from the code on 2026-11-06 (session 037) and checked by the live end-to-end run ([validation-plan.md](../07-delivery/validation-plan.md)). Function ids match the [graphs](../04-architecture/README.md).
+Status: draft contracts checked against the implementation. The [historical validation report](../07-delivery/validation-plan.md) identifies cases exercised end to end. Examples without a recorded check illustrate the contract. Function ids match the [graphs](../04-architecture/README.md).
 All routes below are internal routes of the prototype (proposed for a production build). The connector gateway and payer are mocks; no insurer or TPA API access is claimed (see G1).
 
 Sections:
@@ -10,9 +10,9 @@ Sections:
 3. [Other button handlers](#3-other-button-handlers).
 4. [API routes](#4-api-routes).
 5. [Connector gateway tools](#5-connector-gateway-tools).
-6. [Complete index](#6-complete-index-of-functions): every function in the backend, the gateway and the mocks, with its purpose line.
+6. [Implementation index](#6-implementation-index): source entry points and mock operation reference.
 
-Common facts for every node: it runs inside one LangGraph turn under the thread's lock, so no two turns of one claim run at once. Its output is merged into the checkpoint by the reducers in `state.py` (records upsert by id, user facts merge field by field). A crash before the checkpoint write loses only that turn, and the next turn recomputes from the saved state. Model calls give up after 60 seconds and two retries (`llm.py`).
+Common facts for every node: it runs inside one LangGraph turn under the thread's lock, so no two turns of one claim run at once. Its output is merged into the checkpoint by the reducers in `state.py` (records upsert by id, user facts merge field by field). A restart can leave partial progress. Resume from the latest saved checkpoint and reconcile uncertain external writes before retrying. Model calls give up after 60 seconds and two retries (`llm.py`).
 
 ## 1. Agent graph nodes
 
@@ -42,16 +42,16 @@ Common facts for every node: it runs inside one LangGraph turn under the thread'
 |---|---|
 | Purpose | Turn each uploaded file into a document type and typed facts |
 | Trigger | A document in status `uploaded` (after `POST /api/documents`) |
-| Preconditions | File stored, type and size checked at the API (PDF, PNG, JPEG; limit `MAX_UPLOAD_MB`); not a byte-identical repeat (409 at upload) |
+| Preconditions | File stored, type and size checked at the API (PDF, PNG, JPEG; limit `MAX_UPLOAD_MB`). A successful byte-identical upload is refused; a failed or interrupted one can reuse its record. |
 | Input | `Document {id, path, mime_type, status: "uploaded"}` |
 | Output | `Document {status: parsed \| failed \| rejected, doc_type, facts}` plus `Policy {status: "pending", ...}` for a policy file. `DocumentExtraction` schema: `doc_type` and one of `policy`, `hospital`, `letter`, `bank`, `authority` |
 | Evidence | The file itself; the prompt tells the model to copy only what is printed and leave unknown fields empty |
 | Responsibility | Model (Gemini structured output) for reading; deterministic for versioning (`version_check`) and rejection |
 | Dependencies | `llm.get_document_llm` (Gemini only: Groq takes no files), `version_check` |
 | State read / written | Reads documents. Writes documents and policies |
-| Failure types | Model or file error: status failed with a short error, and the agent asks for a new copy. Not a claim document: rejected, file deleted. No Gemini key: 503 |
+| Failure types | Model or file error: status failed with a short error and retry available. Unrelated file: rejected and deleted. Missing Gemini configuration: processing can remain incomplete; the API preserves a saved document record when available. |
 | Timeout / retries | 60 s, two retries |
-| Idempotency | Only `uploaded` documents are read, so a document is never read twice |
+| Idempotency | Only `uploaded` documents are read. A user-requested retry moves the same incomplete record back to `uploaded`. |
 | Normal example | `policy_schedule.pdf` becomes policy facts (insurer, number, members, sum insured 5,00,000, period), pending confirmation |
 | Failure example | A holiday photo becomes `rejected`, the stored copy is deleted, and it never enters the pack (V-04) |
 | Next task | O2 checks what is missing; a second file of the same type sets `version_choice: pending` for X1 |
@@ -246,7 +246,7 @@ Looks up an unconfirmed submission by its client reference and adopts the claim 
 
 ### record_manual (X1 `submitted_manually`)
 
-Records that the user submitted the approved pack themselves. Input `{date: YYYY-MM-DD, claim_number?}`. A future or malformed date is refused with `BAD_DATE_REPLY` (V-33). Output `submission {route: manual, status: submitted}` and `claim_info.submitted_on`, which starts the 15-day settlement clock.
+Records that the user submitted the approved pack themselves. Input `{submitted_on: YYYY-MM-DD, claim_number?}`. A future or malformed date, or one more than 365 days old, is refused with `BAD_DATE_REPLY` (V-33). Output `submission {route: manual, status: submitted}` and `claim_info.submitted_on`, which starts the 15-day settlement clock.
 
 ### _send_query_reply (X1 `send_query_reply`)
 
@@ -254,10 +254,16 @@ Records that the user submitted the approved pack themselves. Input `{date: YYYY
 |---|---|
 | Purpose | Answer an insurer query from a connected account with the documents it asked for |
 | Preconditions | The query came through the connector; every requested item is on file (latest document of each type, or a later upload for "other"); connection active; authority allows it |
+| Trigger and responsibility | X1 after the user selects the connected reply. Deterministic file selection and send, with human approval. |
+| Evidence and dependencies | Current query facts and retained records, `query_documents`, `authority_issues`, `connector.answer_query`. |
+| State | Reads query, claim, connection, authority and document records. Writes answered query facts on success or expires a revoked connection. |
+| Timeout / retries | 10 s gateway request. An uncertain answer requires checking payer status before trying again. |
 | Input / output | Pause `{type: approve_letter, kind: query_reply, letter}` listing each item and file. After approval: `connector.answer_query(case, claim_id, [{id, filename, doc_type}])`, and the query letter is marked `query_status: answered, answered_on` |
 | Failure | Declined: nothing sent. 409 `QUERY_NOT_OPEN`: told the insurer has no open query. 401/403: connection expired. Other: told it is unclear, nothing marked |
 | Idempotency | Once marked answered, the button is no longer offered; the payer refuses a second answer (409) |
 | Normal example | Discharge Card (already sent, renamed) and the new lab report go after approval, and the stage returns to submitted (V-12, V-13) |
+| Failure example | If the payer closed the query first, 409 leaves it unmarked in this attempt. |
+| Next task | C1 reevaluates the query; M1 checks payer status on the next refresh. |
 
 ### _query_answered (X1 `query_answered`)
 
@@ -295,16 +301,72 @@ All routes are under `/api`, and all are internal routes of this prototype. Thre
 | `GET /health` | Database status (`ok`, `memory` or the error) and the primary model provider | Never fails; reports the error instead |
 | `POST /chat`, `POST /chat/stream` | Run a turn for typed text (stream: server-sent events) | 409 card pending |
 | `POST /documents` | Upload a file and run a turn | 413 too large, 415 wrong type or bytes, 409 identical file |
+| `POST /thread/{id}/documents/{doc}/retry` | Reuse a failed or incomplete upload and run extraction | 404 original or record missing, 409 already processed |
+| `DELETE /thread/{id}/documents/{doc}` | Purge an upload and reseed current evidence state | 404 invalid document ID, 500 cleanup can be retried |
+| `DELETE /thread/{id}` | Erase thread checkpoints, local uploads and webhook lookup | 422 invalid ID, 500 cleanup can be retried |
 | `POST /resume` | Answer the pending card | 409 nothing pending, 422 invalid policy correction |
 | `GET /threads?ids=` | Sidebar summaries for this browser's thread ids only | Invalid ids skipped |
 | `GET /thread/{id}` | Refresh: M1 to C1, no model call | 422 bad id |
 | `POST /action` | Press a button (X1) | 409 card pending or button not offered, 422 bad form data |
 | `POST /connection`, `/connection/remove` | Link or unlink the connector case for this claim | 400 code invalid or submission not consented |
+| `POST /connection/sync` | Refresh the case-bound gateway tools and observations | 409 current step incomplete, 403 verification required, 503 unavailable |
 | `POST /claim-type` | Save cashless or reimbursement without the model | 409 after submission with a different type, 422 other values |
 | `POST /authority`, `/authority/withdraw` | Record a caregiver's authority against the uploaded proof, or withdraw it | 422 proof does not match, 409 nothing to withdraw |
 | `POST /notifications/read` | Mark notices read | None |
 | `GET /pack/{id}` (+ `/pdf`, `/eml`, `/documents/{doc}`) | The approved-pack preview, downloads, and originals from this thread's pack only | 409 pack not ready, 404 other thread's document |
 | `POST /webhooks/mock` | Signed payer event triggers the same refresh as opening the thread | 401 bad signature, 422 bad event |
+
+### Additional write and tool contracts
+
+The following contracts describe the current prototype. The triggers are the named tool calls or HTTP handlers. The tools and API guards are deterministic; extraction is delegated to O1, and approvals remain human. Local operations have no dedicated network timeout or automatic retry. A repeat can append a tool message or audit entry even when the underlying fact is unchanged.
+
+| Function / trigger | Typed input, precondition and evidence | Output, state and dependency | Normal and failure examples; retry and next task |
+| --- | --- | --- | --- |
+| `claim_deadline` / T1 | Supported event literal and ISO date, supplied by the user or existing claim context | Rule rows with date, days and description; reads the rule table and leaves case facts untouched | A recorded grievance yields two due dates. Unsupported event or invalid date fails schema validation. Same input gives same dates; show the result for review. |
+| `record_role` / T1 | `self\|caregiver`, patient name and relation from the user; injected call ID | Command writes `user_role` and a ToolMessage. O2 checks policy membership and proof separately. | A caregiver becomes a pending authority step. Invalid role is refused by schema; a name absent from policy remains a blocker. Repeating replaces the role; O2 rechecks. |
+| `update_claim` / T1 | Optional route literal, date and claim number stated by the user; injected call ID | Command merges supplied fields into `claim_info`; absent fields preserve prior values | Records a supplied claim reference. A malformed date fails tool validation. Repeating merges the same facts; C1 updates the review. |
+| `prepare_submission` / T1 | Injected state and call ID, with required evidence, valid authority and no recorded submission | Calls `request_pack_approval`; writes current pack hash on approved resume or returns blockers/decline in a ToolMessage | Complete pack yields a confirmation. An already submitted claim is blocked. Resume rebuilds the same checkpointed pack; X1 or a manual handoff follows. |
+| `retry_document` / HTTP | Valid thread and generated document IDs; failed or uploaded record and retained file | Reuses ID and fingerprint under thread lock; O1 rereads, then returns ChatResponse with processed ID | Temporary model error succeeds on retry. A missing original returns 404 and permits re-upload of the same bytes. A successful repeat returns 409; proceed to evidence review. |
+| `delete_document` / HTTP | Thread and document IDs; user confirms deletion in the Dossier | Purges older checkpointer copies, rebuilds from sanitized state, clears approval and removes local file; returns ChatResponse | Removing a policy makes the policy step needed. If file cleanup fails after checkpoint commit, the same request can finish cleanup. Recheck O2/C1/P1. |
+| `delete_thread` / HTTP | Thread ID; user confirms deleting the session | Clears checkpoint rows, blobs, writes, upload files and webhook lookup; returns 204 | Sidebar removes the case after success. Malformed ID returns 422. A retry can clear remaining files; browser opens another session or a draft. |
+| `set_claim_type` / HTTP | Thread ID and cashless/reimbursement literal, chosen by user | Writes route and audit entry; refreshes claim | Cashless selection updates the next step. Changing the route after submission returns 409. Same choice can add an audit entry; rejoin C1. |
+| `record_authority`, `withdraw_authority` / HTTP | Thread ID, representative, basis, scope and optional proof and expiry; withdraw needs active authority | Records or withdraws authority and appends audit; withdrawal cancels pack approval and emits warning | Correct proof unlocks the workflow. Mismatched proof is refused; repeated withdrawal returns 409. Resume at O2/C1. |
+| `sync_workspace_connections` / HTTP | Thread ID and verified gateway case ID; onboarding complete and no pending turn | Rechecks grants through backend bearer call, stores scoped observations and notes, refreshes; 10 s per gateway call | Authorized read updates the observation. A revoked or expired case is refused or cleared. Stable notice IDs prevent repeated notices; retry on later refresh. |
+
+### Remaining state and action contracts
+
+Each local handler below uses the existing prototype thread context. An HTTP handler returns `ChatResponse` unless otherwise stated. An X1 handler takes `AgentState`, form fields and thread ID and returns a state patch plus reply. It runs deterministically unless it invokes a named model or pauses for human approval. Local state edits have no dedicated timeout or automatic retry. O2 checks onboarding and C1/P1 recompute the claim or payment when their prerequisites hold.
+
+| Function / trigger | Input, gate and evidence | Output, state and dependencies | Normal example, failure, retry and next step |
+|---|---|---|---|
+| `reconcile`, `_check_submission` / M1 or X1 | Active connector, uncertain submission and its saved client reference. X1 checks for an already submitted or absent claim as well. | Reads payer via `recover`; confirmed match updates submission and claim reference. A confirmed absence from X1 sets `NOT_AT_PAYER`. | Found claim CLM-1: adopt it once. Timeout or unknown outcome: keep unconfirmed. Gateway call limit 10 s; repeat the lookup safely; M1 monitors a confirmed submission. |
+| `record_manual` / X1 | `submitted_on` and optional `claim_number` from the user's filing; offered action and valid authority. | Stores manual submission and claim info, replies with the recorded date and due date. | Save a valid filing date. Malformed, future or older-than-365-days date returns a correction prompt. After recording, the same action is no longer offered; C1 derives stage. |
+| `_version`, `_reset_approval` / X1 | User chooses replace or keep, with the new doc ID and its still-pending version link. | Updates document states/version and clears any outstanding approval on an unsubmitted claim. | Replace marks the old record superseded and increments version. Stale choice returns a reply with no patch; C1 builds the new pack. |
+| `_choose_policy` / X1 | Selected confirmed policy document ID and current patient name. | Sets `claim_info.policy_doc_id`; clears an unused approval via `_reset_approval`. | Choose a covering policy. Non-covering or stale selection leaves the case unchanged; C1 checks the selected pack. |
+| `_balance` / X1 | Selected alternative covering policy, current decision and case evidence. | Archives insurer letters and bank statements, appends a history round, clears active submission/approval/dispute and sets the balance round. | Partial first decision becomes evidence in a second pack. No target or decision returns a refusal. Repeat must pass the current action and policy checks; C1 reviews the new round. |
+| `_query_answered` / X1 | User's manual response date, current query document; date from letter through today. | Marks the query facts answered and sets date; computes the new due-date reply. | Valid send date reopens the submitted waiting stage. Future or pre-query date leaves the query open. A retry must still have an available query; C1 recalculates. |
+| `_draft_grievance`, `_draft_ombudsman` / X1 | Current decision and dispute facts. Grievance requires a disputable decision and caregiver grievance scope if applicable. Ombudsman requires `ombudsman_check`. | Builds text and digest with `letter`; pauses via `_approve_letter`; approval stores digest/time and initializes filing fields. | Approved grievance becomes a human handoff. Ineligible Ombudsman case or declined card writes no approval. Rebuild on resume from the same checkpoint; record filing after the user sends. |
+| `_grievance_sent`, `_ombudsman_sent` / X1 | Current offered action, human-supplied date and optional reference, validated by `_sent_on`. | Records filing date and reference in `dispute`; grievance reply includes its due date. | Record a real acknowledgement. Date before decision or in future is refused. Repeating merges the same facts if available; C1 and reminders surface the next step. |
+| `chat`, `chat_stream` / HTTP | `ChatRequest` with validated thread ID and user message. | Adds a HumanMessage and runs M1 through the graph. JSON turn or SSE activity/token/done/error; checkpoints persist across turns. | Chat yields next action; no model key yields 503 or SSE error. No automatic route retry or deduplication; inspect saved history before resending. |
+| `upload_document`, `process_document` / HTTP | Multipart thread ID/file, allowed MIME and file signature, bounded upload bytes. | Saves original and document fingerprint, runs O1, returns processed ID. A failed matching upload can reuse its record and restore missing bytes. | Valid policy yields a confirmation; bad magic returns 415; completed duplicate returns 409. Use the same-file recovery or retry endpoint for an incomplete record. |
+| `resume` / HTTP | `ResumeRequest`, current interrupt, and valid typed corrections if applicable. | Invokes LangGraph `Command(resume=...)`; O3 or the action stores the human answer. | Approve policy and recheck onboarding. Invalid correction returns 422 without consuming the card; no pending card returns 409 on repeat. |
+| `press_action` / HTTP | `ActionRequest`, no pending card, currently offered ID and required fixed form data. | Translates the form into `requested_action` and runs X1. X1 audits state changes. | Select an offered version action; a forged ID returns 409. Repeat must still be offered; refresh to see the next action. |
+| `link_connection`, `unlink_connection` / HTTP | Link: thread and verified case with TPA grant. Unlink: thread ID. No pending approval card at state write. | Writes or clears `connection` using `write_state`, then refreshes. Gateway bearer timeout 10 s for link. Unlink only changes local binding. | Link a valid demo case or clear its local binding. Invalid case returns 400; unavailable gateway returns 503. Retry link after verification, or revoke the grant separately in the gateway. |
+| `read_notifications` / HTTP | `ThreadRequest` and current saved notices. | Marks unread notices read, then refreshes. `write_state` blocks edits during an interrupt. | Mark notices read once. Pending card can block the write with 409; repeat after answering and hydrate notices. |
+| `mock_webhook`, `refresh` / signed event or thread open | HMAC-checked event and in-memory claim-to-thread mapping, or explicit thread ID. | Returns 202 ignored/refreshed for webhook. Refresh runs M1/C1 on idle state and may deliver email notices; paused state stays saved. | Signed event picks up a payer decision. Forged signature returns 401; unknown claim is ignored. Snapshot and reminder IDs prevent duplicate effects; check on open to catch up. |
+
+### Gateway write boundaries
+
+All examples use synthetic credentials and records. Provider requests run under the gateway's upstream timeout and the backend's 10 s call limit. The server calls below recheck provider consent around upstream I/O. The caller handles uncertain results.
+
+| Function / trigger | Input, gate and evidence | Output, state and dependencies | Normal example, failure, retry and next step |
+|---|---|---|---|
+| `verify` / POST connector session | `Verification` onboarding code and optional thread binding; available capacity. | Creates memory case with expiry and returns case ID and HttpOnly cookie. Replaces an existing browser case. | Valid code creates a case; bad code returns 403 and full capacity returns 503. Reverification replaces prior grants; open the catalog. |
+| `connect`, `disconnect` / POST or DELETE provider | Browser case cookie and provider; POST also needs `Consent` with provider code and explicit approval. | Creates or removes a case grant; email revoke clears its inbox. POST returns connected state; DELETE returns 204. | Approve the TPA; an unchecked grant returns 403. Repeating preserves or removes the same grant; synchronize local case state. |
+| `sign_out` / DELETE connector session | Verified cookie and workspace binding. | Removes memory case and all grants, clears cookie, returns 204. | Sign-out revokes grants; repeat without a valid cookie returns 401. Start a new verification for access. |
+| `deliver` / POST case mail | Server bearer, email grant, `MailBatch` of dated notices. | Saves generic notices once by ID and returns delivery acknowledgement; bounded inbox. | One post-consent reminder becomes a generic entry. Missing grant returns 403, earlier notices are skipped. Retrying same notice IDs is safe. |
+| `submit` / POST case claims | Server bearer, active TPA grant, `ClaimSubmission` and idempotency header. Caller checks exact pack approval and caregiver scope. | Mock payer stores or returns its claim; gateway returns 201 with provenance. | Same key recovers CLM-1. An ambiguous upstream result returns 502; lookup by client reference before retry. |
+| `answer` / POST claim documents | Server bearer, TPA grant, claim ID and `QueryAnswer`. Caller approves exact attachment list. | Sends metadata to mock payer and returns sourced answer; payer records answered query. | Open query accepts the supplied records. Closed query returns 409; a timeout is uncertain. Read status before retry; C1 resumes monitoring. |
 
 ## 5. Connector gateway tools
 
@@ -319,6 +381,10 @@ The gateway (`connectors/app.py`, port 8101) stands in for a provider integratio
 | `GET /agent/cases/{case}/claims/{id}` | `read_claim` | `GET /claims/{id}` (+ queries, decision, payments) | 403, 404 |
 | `POST /agent/cases/{case}/claims/{id}/documents` | `read_claim` (submit scope) | `POST /claims/{id}/documents` | 403, 404, 409 `QUERY_NOT_OPEN`, 502 `PROVIDER_ANSWER_UNCONFIRMED` |
 
-## 6. Complete index of functions
+## 6. Implementation index
 
-Generated from the code's docstrings on 2026-11-06 (301 functions; every one has a docstring). The line numbers are those of that date.
+The current implementation and source docstrings are indexed by entry point in the [agent graph](../../backend/app/agent/graph.py), [backend routes](../../backend/app/api/routes.py), [gateway routes](../../connectors/app.py) and [mock service reference](mock-services-architecture-and-routes.md). The sections above specify the application-facing nodes, tools and write contracts.
+
+---
+
+Previous: [Technical reference](README.md) | [Index](../../README.md) | Next: [API and tool matrix](api-tool-matrix.md)

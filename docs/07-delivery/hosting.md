@@ -112,3 +112,7 @@ The gateway also accepts its own Render hostname (`RENDER_EXTERNAL_HOSTNAME`, se
 ## Updating the hosted demo
 
 Merging to `main` redeploys all four parts automatically: Vercel and Render both watch the branch. Pull request branches get Vercel preview URLs. Previews call the same Render services, so connector posts from a preview URL are refused unless that preview URL is added to `CONNECTOR_ALLOWED_ORIGINS`.
+
+---
+
+Previous: [Demo walkthrough: full recording script (about 40 minutes)](demo-walkthrough.md) | [Index](../../README.md) | Next: [Traceability](../traceability.md)
