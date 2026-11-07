@@ -48,7 +48,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://claimwise-backend.onrender.com/api/:path*"
+      "destination": "https://claimwise-backend-noj5.onrender.com/api/:path*"
     },
     {
       "source": "/mock-api/:path*",
