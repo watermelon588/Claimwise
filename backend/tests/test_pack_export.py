@@ -48,7 +48,7 @@ def test_claim_pack_originals_downloads_and_approval_reset(monkeypatch, tmp_path
     monkeypatch.setattr(onboarding, "extract_document", extract)
     from app.main import app
 
-    pdf = (ROOT / "mocks/mock_documents/valid/02_valid_discharge_summary.pdf").read_bytes()
+    pdf = (ROOT / "mocks/mock_documents/valid/run1_standard_reimbursement/02_discharge_summary.pdf").read_bytes()
     png = (ROOT / "frontend/public/mascot-icon.png").read_bytes()
     thread = "pack-export-smoke"
     endpoint = f"/api/pack/{thread}"

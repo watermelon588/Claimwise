@@ -1,46 +1,59 @@
-"""Test suite verifying generated mock test documents and agent validation rules."""
+"""Checks the demo fixtures in mock_documents/ (built by mocks.services.generate_test_suite_docs)."""
 
-import os
-import pytest
+import re
+import zlib
+from pathlib import Path
 
-BASE_DOCS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "mock_documents"))
-VALID_DIR = os.path.join(BASE_DOCS_DIR, "valid")
-INVALID_DIR = os.path.join(BASE_DOCS_DIR, "invalid")
+DOCS = Path(__file__).resolve().parent.parent / "mock_documents"
+
+VALID = {
+    "run1_standard_reimbursement": ["01_policy_schedule", "02_discharge_summary", "03_final_bill", "04_bank_statement"],
+    "run2_dispute_fallback": ["01_revised_decision_letter"],
+    "run3_caregiver": ["01_policy_schedule", "02_discharge_summary", "03_final_bill", "04_consent_letter_ramesh_to_aman",
+                       "05_discharge_summary_reissued_v2", "06_bank_statement_before_credit", "07_bank_statement_after_credit"],
+    "run4_two_policies": ["01_policy_schedule", "02_discharge_summary", "03_final_bill", "04_policy_schedule_group_arogya",
+                          "05_consent_letter_ramesh_to_aman"],
+    "run5_cashless": ["01_policy_schedule", "02_discharge_summary", "03_final_bill", "04_final_bill_updated_after_tpa_payment"],
+    "run6_manual_route": ["01_policy_schedule", "02_discharge_summary", "03_final_bill", "04_query_letter_hidden_instructions",
+                          "05_decision_letter", "06_bank_statement_short_credit"],
+    "run7_failures": ["01_policy_schedule", "02_discharge_summary", "03_final_bill"],
+}
+INVALID = [
+    "01_discharge_summary_wrong_patient", "02_not_a_claim_document_recipe", "03_final_bill_dates_do_not_match",
+    "04_discharge_summary_outside_policy_period", "05_final_bill_total_does_not_add_up", "06_final_bill_above_sum_insured",
+    "07_query_letter_hidden_instructions", "08_decision_letter_without_clause", "09_query_letter_asks_again_for_discharge_summary",
+    "10_consent_letter_names_someone_else", "11_consent_letter_signed_by_wrong_person", "12_consent_letter_expired",
+]
 
 
-def test_generated_pdf_files_exist_and_valid_format():
-    """Verify that all 14 expected test PDFs exist and start with valid PDF headers."""
-    expected_valid = [
-        "01_valid_policy_schedule.pdf",
-        "02_valid_discharge_summary.pdf",
-        "03_valid_hospital_final_bill.pdf",
-        "04_valid_bank_statement.pdf",
-        "05_valid_insurer_decision_letter.pdf",
-        "06_valid_insurer_query_letter.pdf"
-    ]
-    expected_invalid = [
-        "01_flaw_name_mismatch_discharge_summary.pdf",
-        "02_flaw_date_mismatch_bill.pdf",
-        "03_flaw_outside_policy_period_summary.pdf",
-        "04_flaw_bill_arithmetic_mismatch.pdf",
-        "05_flaw_exceeds_sum_insured_bill.pdf",
-        "06_flaw_repeated_renamed_query_letter.pdf",
-        "07_flaw_missing_clause_decision_letter.pdf",
-        "08_malicious_prompt_injection_query.pdf"
-    ]
+def text_of(path: Path) -> str:
+    """Printed text of an fpdf2 PDF: inflate each content stream and keep the (...) Tj string operands."""
+    raw = path.read_bytes()
+    streams = re.findall(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S)
+    inflated = b"".join(zlib.decompress(s) for s in streams if s[:1] == b"x")
+    return " ".join(m.decode("latin-1") for m in re.findall(rb"\((.*?)\)\s*Tj", inflated))
 
-    for fname in expected_valid:
-        fpath = os.path.join(VALID_DIR, fname)
-        assert os.path.exists(fpath), f"Missing valid document: {fname}"
-        with open(fpath, "rb") as f:
-            header = f.read(5)
-            assert header == b"%PDF-", f"{fname} is not a valid PDF file"
-            assert os.path.getsize(fpath) > 1000, f"{fname} is too small"
 
-    for fname in expected_invalid:
-        fpath = os.path.join(INVALID_DIR, fname)
-        assert os.path.exists(fpath), f"Missing invalid document: {fname}"
-        with open(fpath, "rb") as f:
-            header = f.read(5)
-            assert header == b"%PDF-", f"{fname} is not a valid PDF file"
-            assert os.path.getsize(fpath) > 1000, f"{fname} is too small"
+def test_every_fixture_is_a_pdf():
+    """Each file the walkthrough names exists and is a real PDF."""
+    paths = [DOCS / "valid" / run / f"{name}.pdf" for run, names in VALID.items() for name in names]
+    paths += [DOCS / "invalid" / f"{name}.pdf" for name in INVALID]
+    for path in paths:
+        assert path.exists(), f"missing {path.relative_to(DOCS)}"
+        assert path.read_bytes()[:5] == b"%PDF-", f"{path.name} is not a PDF"
+    assert (DOCS / "invalid" / "13_unsupported_format.txt").exists()
+
+
+def test_facts_the_walkthrough_relies_on():
+    """UTRs and amounts match the Mock Console values the walkthrough types; Run 4's schedule shows the revocation."""
+    valid = DOCS / "valid"
+    assert "UTR-DEMO-RUN1" in text_of(valid / "run1_standard_reimbursement/04_bank_statement.pdf")
+    assert "Rs 44,000" in text_of(valid / "run1_standard_reimbursement/04_bank_statement.pdf")
+    assert "UTR-DEMO-RUN3" not in text_of(valid / "run3_caregiver/06_bank_statement_before_credit.pdf")
+    assert "UTR-DEMO-RUN3" in text_of(valid / "run3_caregiver/07_bank_statement_after_credit.pdf")
+    assert "Status: revoked" in text_of(valid / "run4_two_policies/01_policy_schedule.pdf")
+    assert "Status: active" in text_of(valid / "run3_caregiver/01_policy_schedule.pdf")
+    assert "UTR-DEMO-RUN5-HOSPITAL" in text_of(valid / "run5_cashless/04_final_bill_updated_after_tpa_payment.pdf")
+    assert "Rs 49,000" in text_of(valid / "run6_manual_route/06_bank_statement_short_credit.pdf")
+    assert "Rs 53,000" in text_of(valid / "run6_manual_route/05_decision_letter.pdf")
+    assert "Sita Devi" in text_of(DOCS / "invalid/01_discharge_summary_wrong_patient.pdf")
