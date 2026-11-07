@@ -13,6 +13,14 @@ from psycopg_pool import ConnectionPool
 from app.config import get_settings
 
 
+def delete_checkpoints(saver: BaseCheckpointSaver, thread_id: str) -> None:
+    """Remove all checkpoint rows, blobs and pending writes for one thread."""
+    if isinstance(saver, PostgresSaver):
+        saver.prune([thread_id], strategy="delete")
+    else:
+        saver.delete_thread(thread_id)
+
+
 def open_checkpointer() -> tuple[BaseCheckpointSaver, ConnectionPool | None]:
     """Create the checkpointer for the agent graph.
 

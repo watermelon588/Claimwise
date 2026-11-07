@@ -137,9 +137,9 @@ class SubmissionApproval(TypedDict):
 
 
 class Connection(TypedDict):
-    """An insurer or TPA account the user connected on the connector page, bound to this claim thread.
+    """An insurer or TPA account the user connected under Connect tools, bound to this claim thread.
 
-    Mock only: the case id is the code shown on the gateway page. There is no real user login yet.
+    Mock only: the case id is the gateway's verified case for this claim. There is no real user login yet.
     """
 
     case_id: str

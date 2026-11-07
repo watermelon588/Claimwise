@@ -1,7 +1,7 @@
 """Client for the connector gateway (connectors/app.py): submit an approved claim and read its status.
 
 Mock only. The gateway holds the user's consent per case; the backend binds one case to one claim
-thread after the user pastes the connection code shown on the gateway page. Standard library HTTP
+thread once the user approves the TPA in the in-app Connect tools panel. Standard library HTTP
 keeps this free of new dependencies.
 """
 

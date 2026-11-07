@@ -50,7 +50,6 @@ def test_credentials_consent_and_case_isolation(demo):
     bearer = {"Authorization": f"Bearer {keys.agent}"}
     with client() as browser:
         payload = {"code": keys.providers["insurer"], "approved": True}
-        assert browser.get("/").status_code == 200
         assert browser.post("/api/connectors/insurer", json=payload).status_code == 401
         assert browser.post("/api/connectors/session", json={"code": "wrong"}).status_code == 403
         tools = verify(browser, keys)

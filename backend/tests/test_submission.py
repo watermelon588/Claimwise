@@ -97,16 +97,12 @@ def ids(state: dict) -> list[str]:
     return [a["id"] for a in next_actions(with_review(state))]
 
 
-def test_buttons_follow_the_stage(monkeypatch):
+def test_buttons_follow_the_stage():
     """Preparing offers the pack; approved offers routes; submitted offers letter and nothing-yet."""
     assert ids(base_state(SUMMARY, BILL)) == ["prepare_pack", "other"]
     approved = approved_state()
     assert ids(approved)[:2] == ["submit_connector", "download_pdf"]
-    assert "connect" not in ids({**approved, "connection": None})  # connectors switched off
-    monkeypatch.setenv("CONNECTOR_URL", "http://connector.test")
-    get_settings.cache_clear()
-    assert ids({**approved, "connection": None})[0] == "connect"
-    get_settings.cache_clear()
+    assert ids({**approved, "connection": None})[0] == "download_pdf"  # not connected: manual route only
     submitted = {**approved, "claim_info": {**approved["claim_info"], "submitted_on": "2026-11-05"},
                  "submission": {"route": "connector", "status": "submitted", "claim_id": "CLM-1"}}
     assert ids(submitted) == ["check_updates", "upload_letter", "nothing_yet", "other"]
@@ -273,12 +269,12 @@ def test_api_journey_with_buttons_connector_and_webhook(api, payer, monkeypatch)
     assert api.post("/api/action", json={"thread_id": thread, "action": "prepare_pack"}).json()["pending"]
     approved = api.post("/api/resume", json={"thread_id": thread, "approved": True}).json()
     assert approved["claim"]["stage"] == "approved_to_submit"
-    assert [a["id"] for a in approved["actions"]][0] == "connect"
+    assert [a["id"] for a in approved["actions"]][0] == "download_pdf"
 
     # Off-topic text gets the fixed reply and changes nothing.
     monkeypatch.setattr(intent, "classify", lambda text: "off_topic")
     off = api.post("/api/chat", json={"thread_id": thread, "message": "write me a poem"}).json()
-    assert "connect my insurer account" in off["reply"] and off["claim"]["stage"] == "approved_to_submit"
+    assert "download PDF" in off["reply"] and off["claim"]["stage"] == "approved_to_submit"
 
     linked = api.post("/api/connection", json={"thread_id": thread, "code": "case-abc-123"})
     assert linked.status_code == 200, linked.text

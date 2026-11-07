@@ -63,6 +63,7 @@ function makeThreadEntry(threadId, overrides = {}) {
     claim_type: null,
     answers: {},
     skipped: {},
+    draft: true,
     ...overrides,
   }
 }
@@ -83,7 +84,7 @@ function deriveThreadTitle(data, answers, existingTitle) {
   if (policyNum) return `Policy ${policyNum}`
   if (docs.length > 0 && docs[0].filename) return docs[0].filename
   if (firstUser) return firstUser.slice(0, 44)
-  if (existingTitle && existingTitle !== 'New Claim Session') return existingTitle
+  if (!Array.isArray(data?.history) && existingTitle) return existingTitle
   return 'New Claim Session'
 }
 
@@ -119,6 +120,14 @@ const kept = (docs) => docs.filter((doc) => doc.status !== 'rejected')
  * @returns {object|null} toast payload
  */
 function uploadNotice(doc, expect) {
+  if (doc?.status === 'failed' || doc?.status === 'uploaded') {
+    return {
+      id: Date.now(),
+      title: 'Document processing incomplete',
+      message: 'Claimwise saved the file but could not finish reading it.',
+      instruction: 'Use Retry processing in Documents to try again.',
+    }
+  }
   if (doc?.status === 'rejected') {
     return {
       id: Date.now(),
@@ -136,13 +145,6 @@ function uploadNotice(doc, expect) {
     }
   }
   return null
-}
-
-/** Pick the record for this upload, ignoring historical records with the same filename. */
-function uploadedDocument(records, previousIds, file) {
-  return records?.findLast((doc) => (
-    !previousIds.has(doc.id) && doc.filename === file.name.slice(0, 200) && doc.mime_type === file.type
-  ))
 }
 
 /**
@@ -195,9 +197,9 @@ function formatErrorToast(status, rawDetail) {
     return {
       id: Date.now(),
       status,
-      title: 'Confirmation Already Processed',
+      title: 'Action unavailable',
       message: cleanDetail || 'Nothing is waiting for confirmation on this thread.',
-      instruction: 'Your confirmation was already recorded. Proceed with the current step on screen.',
+      instruction: 'Check the current step or document status before trying again.',
     }
   }
   if (status === 503 || /API_KEY/i.test(cleanDetail)) {
@@ -228,6 +230,7 @@ function formatErrorToast(status, rawDetail) {
 export function useClaimwise() {
   const [threadId, setThreadId] = useState(getInitialThreadId)
   const activeThread = useRef(threadId)
+  const [reconciling, setReconciling] = useState(true)
   const [threads, setThreads] = useState(() => {
     const stored = readStoredThreads()
     const currentId = getInitialThreadId()
@@ -242,12 +245,13 @@ export function useClaimwise() {
 
   const [messages, setMessages] = useState([])
   const [activity, setActivity] = useState('ready')
-  const busy = activity !== 'ready' || loadingThread
+  const busy = activity !== 'ready' || loadingThread || reconciling
   const [pending, setPending] = useState(null)
   const [onboarding, setOnboarding] = useState(null)
   const [claim, setClaim] = useState(null)
   const [documents, setDocuments] = useState([])
-  const [originals, setOriginals] = useState({})
+  const [originalsByThread, setOriginals] = useState({})
+  const originals = originalsByThread[threadId] ?? {}
   const [actions, setActions] = useState([])
   const [notifications, setNotifications] = useState([])
   const [submission, setSubmission] = useState(null)
@@ -307,11 +311,12 @@ export function useClaimwise() {
     if (data.dispute !== undefined) setDispute(data.dispute)
 
     syncThreadEntry(targetId, (prev) => {
-      const finalAnswers = { ...(prev.answers ?? {}), ...mergedAnswers }
+      const finalAnswers = mergedAnswers
       const finalSkipped = nextSkipped ?? prev.skipped ?? {}
       const count = Array.isArray(nextMessages) ? nextMessages.length : (data.history?.length ?? prev.message_count ?? 0)
       return {
         ...prev,
+        draft: false,
         title: deriveThreadTitle(data, finalAnswers, prev.title),
         stage,
         onboarding_complete: Boolean(data.onboarding?.complete),
@@ -324,40 +329,47 @@ export function useClaimwise() {
     })
   }
 
-  // Fetch server-side thread list from checkpointer on initial mount
+  // Reconcile only after every requested batch succeeds. Keep explicitly local drafts.
   useEffect(() => {
     let active = true
-    // Only this browser's own thread ids: the server never lists other people's claims.
-    const ids = readStoredThreads().map((t) => t.thread_id).slice(0, 25).join(',')
-    fetch(`/api/threads?ids=${encodeURIComponent(ids)}`)
-      .then((res) => readBody(res))
-      .then(({ data }) => {
-        const list = Array.isArray(data) ? data : data?.threads
-        if (!active || !Array.isArray(list)) return
-        setThreads((prev) => {
-          const map = new Map(prev.map((t) => [t.thread_id, t]))
-          for (const srv of list) {
-            const existing = map.get(srv.thread_id)
-            map.set(srv.thread_id, {
-              ...makeThreadEntry(srv.thread_id),
-              ...existing,
-              thread_id: srv.thread_id,
-              title: existing?.title && existing.title !== 'New Claim Session' ? existing.title : (srv.title || 'New Claim Session'),
-              stage: srv.stage || existing?.stage || 'onboarding',
-              onboarding_complete: Boolean(srv.onboarding_complete),
-              doc_count: srv.doc_count ?? existing?.doc_count ?? 0,
-              message_count: srv.message_count ?? existing?.message_count ?? 0,
-              claim_type: srv.claim_type || existing?.claim_type || null,
-            })
-          }
-          const merged = Array.from(map.values())
-          writeStoredThreads(merged)
-          return merged
+    const currentId = activeThread.current
+    const stored = new Map(readStoredThreads().map((entry) => [entry.thread_id, entry]))
+    const ids = [...new Set([currentId, ...stored.keys()])]
+    const batches = []
+    for (let i = 0; i < ids.length; i += 25) {
+      const query = encodeURIComponent(ids.slice(i, i + 25).join(','))
+      batches.push(fetch(`/api/threads?ids=${query}`).then(async (res) => {
+        const { data } = await readBody(res)
+        if (!res.ok || !Array.isArray(data)) throw new Error('Session list unavailable')
+        return data
+      }))
+    }
+    Promise.all(batches)
+      .then((results) => {
+        if (!active) return
+        const saved = new Map(results.flat().map((entry) => [entry.thread_id, entry]))
+        const reconciled = ids.flatMap((id) => {
+          const local = stored.get(id)
+          const remote = saved.get(id)
+          if (remote) return [{ ...makeThreadEntry(id), ...local, ...remote, draft: false }]
+          return local?.draft ? [local] : []
         })
+        if (!reconciled.some((entry) => entry.thread_id === currentId)) {
+          // Use a fresh id if the previous active session was erased in the database.
+          const fresh = makeThreadEntry(stored.has(currentId) ? crypto.randomUUID() : currentId)
+          reconciled.unshift(fresh)
+          activeThread.current = fresh.thread_id
+          setThreadId(fresh.thread_id)
+          setAnswers({})
+          setSkipped({})
+        }
+        setThreads(reconciled)
+        writeStoredThreads(reconciled)
       })
       .catch(() => {
-        // Ignore offline errors during background list sync
+        // Keep cached entries when the server cannot verify them.
       })
+      .finally(() => { if (active) setReconciling(false) })
     return () => {
       active = false
     }
@@ -365,6 +377,7 @@ export function useClaimwise() {
 
   // Hydrate the active thread from the backend checkpointer whenever threadId changes
   useEffect(() => {
+    if (reconciling) return undefined
     let active = true
     saveActiveThreadId(threadId)
 
@@ -376,7 +389,7 @@ export function useClaimwise() {
       .then(({ data }) => {
         if (!active) return
         // No saved state (or an error status): stop loading and keep the empty case.
-        if (!data) {
+        if (!data || (!data.onboarding && !data.documents?.length && !data.history?.length && !data.claim)) {
           setLoadingThread(false)
           return
         }
@@ -399,33 +412,11 @@ export function useClaimwise() {
     return () => {
       active = false
     }
-  }, [threadId])
+  }, [threadId, reconciling])
 
-  /** Switch to an existing thread ID and hydrate its state from the checkpointer. */
-  function selectThread(nextId) {
-    if (!nextId || nextId === threadId || activity !== 'ready') return
-    const storedEntry = threads.find((t) => t.thread_id === nextId)
+  /** Clear the visible case before opening another session. */
+  function resetCase() {
     setError(null)
-    setLoadingThread(true)
-    setMessages([])
-    setReply('')
-    setPending(null)
-    setOnboarding(null)
-    setClaim(null)
-    setDocuments([])
-    setAnswers(storedEntry?.answers ?? {})
-    setSkipped(storedEntry?.skipped ?? {})
-    activeThread.current = nextId
-    setThreadId(nextId)
-  }
-
-  /** Create a brand-new thread and switch to it immediately. */
-  function createThread() {
-    if (activity !== 'ready') return null
-    const nextId = crypto.randomUUID()
-    const entry = makeThreadEntry(nextId)
-    setError(null)
-    setLoadingThread(false)
     setMessages([])
     setReply('')
     setPending(null)
@@ -435,10 +426,32 @@ export function useClaimwise() {
     setActions([])
     setNotifications([])
     setSubmission(null)
+    setConnection(null)
     setAuthority(null)
     setAudit([])
     setHousehold(null)
     setDispute(null)
+  }
+
+  /** Switch to an existing thread ID and hydrate its state from the checkpointer. */
+  function selectThread(nextId) {
+    if (!nextId || nextId === threadId || busy) return
+    const storedEntry = threads.find((t) => t.thread_id === nextId)
+    resetCase()
+    setLoadingThread(true)
+    setAnswers(storedEntry?.answers ?? {})
+    setSkipped(storedEntry?.skipped ?? {})
+    activeThread.current = nextId
+    setThreadId(nextId)
+  }
+
+  /** Create a brand-new thread and switch to it immediately. */
+  function createThread() {
+    if (busy) return null
+    const nextId = crypto.randomUUID()
+    const entry = makeThreadEntry(nextId)
+    resetCase()
+    setLoadingThread(false)
     setAnswers({})
     setSkipped({})
     setThreads((prev) => {
@@ -451,31 +464,38 @@ export function useClaimwise() {
     return nextId
   }
 
-  /** Remove a thread from the sidebar registry; switches away if it was the active thread. */
-  function deleteThread(targetId) {
-    if (!targetId || activity !== 'ready') return
-    const remaining = threads.filter((t) => t.thread_id !== targetId)
-    if (remaining.length === 0) {
-      const freshId = crypto.randomUUID()
-      const fresh = [makeThreadEntry(freshId)]
-      writeStoredThreads(fresh)
-      setThreads(fresh)
-      setMessages([])
-      setReply('')
-      setPending(null)
-      setOnboarding(null)
-      setClaim(null)
-      setDocuments([])
-      setAnswers({})
-      setSkipped({})
-      activeThread.current = freshId
-      setThreadId(freshId)
-      return
-    }
-    writeStoredThreads(remaining)
-    setThreads(remaining)
-    if (targetId === threadId) {
-      selectThread(remaining[0].thread_id)
+  /** Remove a session from the registry only after the backend confirms deletion. */
+  async function deleteThread(targetId) {
+    if (!targetId || busy) return false
+    setActivity('tool')
+    setError(null)
+    try {
+      const res = await fetch(`/api/thread/${encodeURIComponent(targetId)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const { data, text } = await readBody(res)
+        setError(formatErrorToast(res.status, typeof data?.detail === 'string' ? data.detail : text))
+        return false
+      }
+      setOriginals(({ [targetId]: _removed, ...files }) => files)
+      const remaining = threads.filter((t) => t.thread_id !== targetId)
+      if (!remaining.length) remaining.push(makeThreadEntry(crypto.randomUUID()))
+      writeStoredThreads(remaining)
+      setThreads(remaining)
+      if (targetId === threadId) {
+        const next = remaining[0]
+        resetCase()
+        setAnswers(next.answers ?? {})
+        setSkipped(next.skipped ?? {})
+        setLoadingThread(!next.draft)
+        activeThread.current = next.thread_id
+        setThreadId(next.thread_id)
+      }
+      return true
+    } catch {
+      setError(formatErrorToast(0, ''))
+      return false
+    } finally {
+      setActivity('ready')
     }
   }
 
@@ -498,19 +518,19 @@ export function useClaimwise() {
         return null
       }
       setReply(data.reply)
-      if (data.reply) add('agent', data.reply)
+      if (data.history) setMessages(data.history)
+      else if (data.reply) add('agent', data.reply)
       if (data.documents && original) {
-        const existing = new Set(documents.map((doc) => doc.id))
-        const uploaded = uploadedDocument(data.documents, existing, original)
+        const uploaded = data.documents.find((doc) => doc.id === data.processed_document_id)
         if (uploaded && uploaded.status !== 'rejected') {
-          setOriginals((files) => ({ ...files, [uploaded.id]: original }))
+          setOriginals((files) => ({ ...files, [threadId]: { ...files[threadId], [uploaded.id]: original } }))
         }
       }
       const mergedAnswers = { ...(data.answers ?? {}), ...nextAnswers }
       if (data.answers && Object.keys(data.answers).length > 0) {
         setAnswers(mergedAnswers)
       }
-      applySnapshot(threadId, data, null, mergedAnswers, skipped)
+      applySnapshot(threadId, data, data.history, mergedAnswers, skipped)
       return data
     } catch (err) {
       const isNetwork = err instanceof TypeError
@@ -620,12 +640,37 @@ export function useClaimwise() {
     const body = new FormData()
     body.append('thread_id', threadId)
     body.append('file', file)
-    const before = new Set(documents.map((doc) => doc.id))
     const data = await call('/api/documents', { method: 'POST', body }, 'reading', file)
-    const uploaded = uploadedDocument(data?.documents, before, file)
+    const uploaded = data?.documents?.find((doc) => doc.id === data.processed_document_id)
     const notice = uploadNotice(uploaded, expect)
     if (notice) setError(notice)
     return notice ? null : uploaded
+  }
+
+  /** Retry extraction of a failed upload and show the latest processing result. */
+  async function retryDocument(id) {
+    if (busy) return
+    const data = await call(`/api/thread/${encodeURIComponent(threadId)}/documents/${encodeURIComponent(id)}/retry`,
+      { method: 'POST' }, 'reading')
+    const notice = uploadNotice(data?.documents?.find((doc) => doc.id === id))
+    if (notice) setError(notice)
+    return data
+  }
+
+  /** Remove the document and any browser preview after the server erases it. */
+  async function deleteDocument(id) {
+    if (busy) return
+    const { members: _members, ...localAnswers } = answers
+    const data = await call(`/api/thread/${encodeURIComponent(threadId)}/documents/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }, 'tool', undefined, localAnswers)
+    if (data) {
+      setAnswers({ ...localAnswers, ...data.answers })
+      setOriginals((files) => {
+        const { [id]: _removed, ...remaining } = files[threadId] ?? {}
+        return { ...files, [threadId]: remaining }
+      })
+    }
+    return data
   }
 
   /** Answer the paused card. A confirmed policy's members feed the patient step. */
@@ -679,16 +724,23 @@ export function useClaimwise() {
     }
   }
 
-  /** Bind the insurer account connected on the connector page to this claim, by its connection code. */
-  const linkConnection = (code) => quiet('/api/connection', post(threadId, { code: code.trim() }))
   /** Refresh the permissions and provider observations of this verified workspace. */
   const syncTools = (code, showError = true) => quiet('/api/connection/sync', post(threadId, { code }), showError)
   /** Forget the connected account for this claim. */
   const unlinkConnection = () => quiet('/api/connection/remove', post(threadId, {}))
   /** Mark every notification read. */
   const markRead = () => quiet('/api/notifications/read', post(threadId, {}))
-  /** Record the caregiver's authority (name, basis, scope, expiry, proof document id). */
-  const recordAuthority = (form) => quiet('/api/authority', post(threadId, form))
+  /** Record the caregiver's authority while showing the standard confirmation loader. */
+  async function recordAuthority(form) {
+    if (busy) return false
+    setActivity('checking')
+    setError(null)
+    try {
+      return await quiet('/api/authority', post(threadId, form))
+    } finally {
+      setActivity('ready')
+    }
+  }
   /** Record cashless or reimbursement directly on the server (no model involved), then show the refreshed claim. */
   async function setClaimType(type) {
     setAnswers({ ...answers, claimType: type })
@@ -724,7 +776,7 @@ export function useClaimwise() {
     actions, notifications, submission, connection, authority, audit, household, dispute,
     reply, answers, skipped,
     error, dismissError,
-    say, upload, answer, reviewPack, act, linkConnection, syncTools, unlinkConnection, markRead, recordAuthority, withdrawAuthority,
+    say, upload, retryDocument, deleteDocument, answer, reviewPack, act, syncTools, unlinkConnection, markRead, recordAuthority, withdrawAuthority,
     setClaimType,
     skip: skipStep,
   }

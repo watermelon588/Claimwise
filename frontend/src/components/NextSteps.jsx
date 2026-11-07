@@ -48,7 +48,7 @@ function Step({ action, cw, onForm }) {
  */
 export default function NextSteps({ cw }) {
   const [formId, setFormId] = useState(null)
-  const actions = cw.actions.filter((action) => action.kind !== 'connect')
+  const { actions } = cw
   if (cw.busy || cw.pending || !actions.length) return null
   const form = cw.actions.find((a) => a.kind === 'form' && a.id === formId)
   return (

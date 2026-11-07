@@ -60,14 +60,14 @@ Invoke-RestMethod -Method Post "$mockBase/hospital/admissions/ADM-001/discharge?
 Invoke-RestMethod -Method Post "$mockBase/bank/accounts/ACC-001/credits" -Headers $mockHeaders -ContentType 'application/json' -Body '{"amount":4230000,"utr":"UTR-DEMO-001","narration":"Synthetic settlement"}'
 ```
 
-Then start the gateway. [The standalone connection page](http://127.0.0.1:8101/) is also available for direct gateway testing.
+Then start the gateway. It has no page of its own: users approve providers in the in-app **Connect tools** panel, and tests call its API directly.
 
 ```powershell
 $env:CLAIMWISE_CONNECTOR_DEMO = '1'
 .\mocks\.venv\Scripts\python.exe -m uvicorn connectors.app:app --host 127.0.0.1 --port 8101
 ```
 
-If 8100 is already in use, start the disposable mock instance on a different port and use that port in both `$mockBase` and `$env:CLAIMWISE_MOCK_PORT` before starting the gateway. Terminal 2 prints the synthetic verification and sign-in codes. Verify a case, connect one provider, and refresh the page to confirm it stays connected.
+If 8100 is already in use, start the disposable mock instance on a different port and use that port in both `$mockBase` and `$env:CLAIMWISE_MOCK_PORT` before starting the gateway. Terminal 2 prints the synthetic verification and sign-in codes. In Claimwise, open **Connect tools**, verify the case, connect one provider, and reload the app to confirm it stays connected.
 
 For the in-app flow, start the backend and frontend as described in the [repository README](../../README.md#run-locally). Set the backend's `CONNECTOR_URL` to `http://127.0.0.1:8101` and `CONNECTOR_AGENT_KEY` to the gateway's server bearer key. Enter only the demo verification and provider sign-in codes in the browser. Enable the existing signed mock webhook on both services to see payer updates without refreshing. The connector proxy currently runs in Vite development.
 
@@ -103,7 +103,7 @@ The TPA connection also covers three claim endpoints. All need the server bearer
 | `GET /agent/cases/{case_id}/claims?client_reference=` | Find a claim by client reference. Claimwise calls this before every submission and after any unclear failure, so an accepted claim whose answer was lost is adopted instead of sent twice. |
 | `GET /agent/cases/{case_id}/claims/{claim_id}` | Read status, queries (with `raised_at`, `answered_at`, `due_at`), the decision with line items, and payments. |
 
-The Dossier binds the verified workspace to the claim thread as soon as an approved tool is synchronized. The standalone gateway retains its case reference for direct API testing. Node M1 reads the submitted claim at the start of every turn and when the mock payer's signed webhook arrives, and turns queries, decisions and payments into insurer-letter records. Revoking the TPA connection here makes the next read return `403`, and Claimwise marks the connection expired.
+The Dossier binds the verified workspace to the claim thread as soon as an approved tool is synchronized. API tests can verify a case through `POST /api/connectors/session` and bind it with the backend's `POST /api/connection`. Node M1 reads the submitted claim at the start of every turn and when the mock payer's signed webhook arrives, and turns queries, decisions and payments into insurer-letter records. Disconnecting the TPA under Connect tools makes the next read return `403`, and Claimwise marks the connection expired.
 
 ### Acting for someone else (added in session 030)
 

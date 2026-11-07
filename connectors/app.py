@@ -3,7 +3,6 @@
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 import os
 import re
 import secrets
@@ -13,7 +12,7 @@ from typing import Literal
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Path as PathParam, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -177,17 +176,6 @@ def create_app(keys: DemoKeys | None = None, transport: httpx.AsyncBaseTransport
         if not matches(request.headers.get("authorization", ""), f"Bearer {credentials.agent}"):
             raise fail(401, "SERVER_AUTH_REQUIRED")
         return active_case(case_id)
-
-    @gateway.get("/", response_class=HTMLResponse)
-    async def page():
-        """Serve the local connector page with a per-response script and style nonce."""
-        nonce = secrets.token_urlsafe(24)
-        html = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
-        policy = (
-            f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; "
-            "connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
-        )
-        return HTMLResponse(html.replace("__NONCE__", nonce), headers={"Content-Security-Policy": policy})
 
     @gateway.post("/api/connectors/session", status_code=201)
     async def verify(body: Verification, request: Request, response: Response):

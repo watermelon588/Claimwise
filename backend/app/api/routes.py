@@ -11,6 +11,7 @@ import logging
 import re
 import threading
 import uuid
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, Response, Upl
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.types import Command
 
 from app import connector
@@ -25,13 +27,15 @@ from app.agent.connector_updates import connector_evidence, email_updates
 from app.agent.actions import action_input, next_actions
 from app.agent.authority import audit, now_iso, validate_authority, withdrawal
 from app.agent.grievance import dispute_view
-from app.agent.onboarding import authority_status, correction_error
+from app.agent.graph import build_graph
+from app.agent.onboarding import authority_status, check_onboarding, correction_error
+from app.agent.payment import route_after_review, verify_payment
 from app.agent.prompts import AUTHORITY_WITHDRAWN_NOTE, DUPLICATE_FILE
 from app.agent.llm import LLMNotConfigured
 from app.agent.pack_export import approval_status, pack_email, pack_pdf
-from app.agent.claim import build_submission_pack, confirmed_policies, confirmed_policy, submission_blockers
+from app.agent.claim import build_submission_pack, confirmed_policies, confirmed_policy, review_claim, submission_blockers
 from app.config import get_settings
-from app.db import ping
+from app.db import delete_checkpoints, ping
 from app.observability import run_config
 from app.schemas import (
     THREAD_ID_PATTERN, ActionRequest, AuthorityRequest, ChatRequest, ChatResponse, ClaimTypeRequest, ConnectionRequest,
@@ -141,7 +145,7 @@ def household(values: dict) -> dict | None:
     }
 
 
-def run_graph(request: Request, thread_id: str, graph_input, route: str) -> ChatResponse:
+def run_graph(request: Request, thread_id: str, graph_input, route: str, *, locked: bool = False) -> ChatResponse:
     """Invoke the agent graph for one thread and shape the API response.
 
     Args:
@@ -149,6 +153,7 @@ def run_graph(request: Request, thread_id: str, graph_input, route: str) -> Chat
         thread_id: Conversation id; selects the saved state.
         graph_input: New state input, or a Command(resume=...) for a paused run.
         route: Which API route started the run (for tracing).
+        locked: Whether the caller already holds the thread lock.
     Returns:
         ChatResponse with the reply, any pending confirmation, reviews, buttons and notices.
     Raises:
@@ -156,8 +161,10 @@ def run_graph(request: Request, thread_id: str, graph_input, route: str) -> Chat
         HTTPException 500: unexpected graph or checkpointer failure (returned as JSON).
     """
     try:
-        with thread_lock(thread_id):
+        with nullcontext() if locked else thread_lock(thread_id):
             result = request.app.state.graph.invoke(graph_input, run_config(thread_id, route))
+            return ChatResponse(**shape(request, thread_id, result, result.get("__interrupt__") or [],
+                                        with_history=route in ("upload", "retry_upload")))
     except LLMNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except HTTPException:
@@ -168,7 +175,6 @@ def run_graph(request: Request, thread_id: str, graph_input, route: str) -> Chat
             status_code=500,
             detail=f"Server error while processing request ({exc.__class__.__name__}). Please try again.",
         ) from exc
-    return ChatResponse(**shape(request, thread_id, result, result.get("__interrupt__") or []))
 
 
 def refresh(request: Request, thread_id: str) -> dict:
@@ -184,9 +190,9 @@ def refresh(request: Request, thread_id: str) -> dict:
         if snapshot.values and not snapshot.next and not snapshot.interrupts:
             graph.invoke({"requested_action": None}, run_config(thread_id, "refresh"))
             snapshot = graph.get_state(config)
-    values = snapshot.values or {}
-    email_updates(values)
-    return shape(request, thread_id, values, snapshot.interrupts, with_history=True)
+        values = snapshot.values or {}
+        email_updates(values)
+        return shape(request, thread_id, values, snapshot.interrupts, with_history=True)
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -283,27 +289,68 @@ def upload_document(request: Request, thread_id: str = Form(...), file: UploadFi
         raise HTTPException(status_code=415, detail="Upload a PDF, PNG or JPEG file")
     if len(data) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"File is larger than {settings.max_upload_mb} MB")
-    # DEV-023: the exact same bytes again add nothing (a corrected file has different bytes and is versioned by O1).
+    # Check and write under the same lock, so two uploads cannot both claim the hash.
     sha256 = hashlib.sha256(data).hexdigest()
-    same = next((d for d in snapshot_of(request, thread_id).values.get("documents") or []
-                 if d.get("sha256") == sha256 and d["status"] != "rejected"), None)
-    if same:
-        raise HTTPException(status_code=409, detail=DUPLICATE_FILE.format(
-            filename=same["filename"], date=(same.get("uploaded_at") or "earlier")[:10]))
+    with thread_lock(thread_id):
+        same = next((d for d in snapshot_of(request, thread_id).values.get("documents") or []
+                     if d.get("sha256") == sha256 and d["status"] != "rejected"), None)
+        if same and same["status"] not in ("failed", "uploaded"):
+            raise HTTPException(status_code=409, detail=DUPLICATE_FILE.format(
+                filename=same["filename"], date=(same.get("uploaded_at") or "earlier")[:10]))
 
-    doc_id = uuid.uuid4().hex
-    path = Path(settings.upload_dir) / thread_id / f"{doc_id}{allowed[0]}"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
-    filename = Path(file.filename or "upload").name[:200]
-    doc = {
-        "id": doc_id, "filename": filename, "mime_type": file.content_type, "path": str(path),
-        "status": "uploaded", "doc_type": None, "error": None, "facts": None, "sha256": sha256,
-        "uploaded_at": now_iso(),
-    }
-    return run_graph(request, thread_id, {
-        "documents": [doc], "messages": [HumanMessage(UPLOAD_PREFIX + filename, name="upload")],
-    }, "upload")
+        doc_id = same["id"] if same else uuid.uuid4().hex
+        path = Path(settings.upload_dir) / thread_id / f"{doc_id}{allowed[0]}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        filename = Path(file.filename or "upload").name[:200]
+        doc = same or {
+            "id": doc_id, "filename": filename, "mime_type": file.content_type, "doc_type": None,
+            "facts": None, "sha256": sha256, "uploaded_at": now_iso(),
+        }
+        return process_document(request, thread_id, {**doc, "path": str(path)}, new=not same)
+
+
+def process_document(request: Request, thread_id: str, document: dict, *, new: bool = False) -> ChatResponse:
+    """Run extraction on an existing document id; add an upload message only for a new file."""
+    doc_id = document["id"]
+    update = {"documents": [{**document, "status": "uploaded", "error": None}]}
+    if new:
+        update["messages"] = [HumanMessage(UPLOAD_PREFIX + document["filename"], id=f"upload-{doc_id}", name="upload")]
+    try:
+        result = run_graph(request, thread_id, update, "upload" if new else "retry_upload", locked=True)
+    except HTTPException as exc:
+        if exc.status_code not in (500, 503):
+            raise
+        # An extraction or subsequent reply can fail after LangGraph has already saved the upload.
+        snapshot = snapshot_of(request, thread_id)
+        if not any(d["id"] == doc_id for d in snapshot.values.get("documents", [])):
+            raise
+        result = ChatResponse(**shape(request, thread_id, snapshot.values, snapshot.interrupts, with_history=True))
+    result.processed_document_id = doc_id
+    return result
+
+
+def validate_upload_id(document_id: str) -> None:
+    """Allow management only for server-generated upload ids, which also name stored files."""
+    if not re.fullmatch(r"[a-f0-9]{32}", document_id):
+        raise HTTPException(404, "Uploaded document not found.")
+
+
+@router.post("/thread/{thread_id}/documents/{document_id}/retry", response_model=ChatResponse)
+def retry_document(thread_id: str, document_id: str, request: Request) -> ChatResponse:
+    """Reprocess a failed or interrupted upload using the retained file and document id."""
+    checked_thread(thread_id)
+    validate_upload_id(document_id)
+    with thread_lock(thread_id):
+        values = snapshot_of(request, thread_id).values
+        doc = next((d for d in values.get("documents", []) if d["id"] == document_id), None)
+        if not doc:
+            raise HTTPException(404, "Uploaded document not found.")
+        if doc["status"] not in ("failed", "uploaded"):
+            raise HTTPException(409, "Only incomplete or failed uploads can be retried.")
+        if not doc.get("path") or not Path(doc["path"]).is_file():
+            raise HTTPException(404, "The original file is missing. Upload the same file again to restore it.")
+        return process_document(request, thread_id, doc)
 
 
 @router.post("/resume", response_model=ChatResponse)
@@ -370,47 +417,43 @@ def list_threads(request: Request, ids: str = "") -> list[dict]:
     Args:
         ids: Comma-separated thread ids (at most 25); invalid ids are skipped.
     """
-    graph = request.app.state.graph
     thread_ids = [t for t in dict.fromkeys(ids.split(","))
                   if re.fullmatch(THREAD_ID_PATTERN, t)][:25]
     summaries = []
     for tid in thread_ids:
-        try:
-            snap = graph.get_state({"configurable": {"thread_id": tid}})
-            vals = snap.values or {}
-            if not vals:
-                continue
-            docs = [d for d in (vals.get("documents") or []) if d.get("status") != "rejected"]
-            policies = [p for p in (vals.get("policies") or []) if p.get("status") != "rejected"]
-            role = vals.get("user_role") or {}
-            claim = vals.get("claim") or {}
-            onboarding = vals.get("onboarding") or {}
-            vis_msgs = history(vals)
-            # Build a meaningful human title for the thread
-            patient = role.get("patient_name")
-            pol_num = policies[0].get("policy_number") if policies else None
-            insurer = policies[0].get("insurer") if policies else None
-            if patient and pol_num:
-                title = f"{patient} · {pol_num}"
-            elif pol_num:
-                title = f"{insurer or 'Policy'} ({pol_num})"
-            elif docs:
-                title = docs[0].get("filename") or f"Claim {tid[:8]}"
-            elif vis_msgs:
-                title = vis_msgs[0]["text"][:42]
-            else:
-                title = f"Claim {tid[:8]}"
-            summaries.append({
-                "thread_id": tid,
-                "title": title,
-                "stage": claim.get("stage") if onboarding.get("complete") else "onboarding",
-                "onboarding_complete": bool(onboarding.get("complete")),
-                "doc_count": len(docs),
-                "message_count": len(vis_msgs),
-                "claim_type": (vals.get("claim_info") or {}).get("claim_type"),
-            })
-        except Exception:
+        # Fail the whole batch on read errors so the browser only removes confirmed-missing sessions.
+        vals = snapshot_of(request, tid).values
+        if not vals:
             continue
+        docs = [d for d in (vals.get("documents") or []) if d.get("status") != "rejected"]
+        policies = [p for p in (vals.get("policies") or []) if p.get("status") != "rejected"]
+        role = vals.get("user_role") or {}
+        claim = vals.get("claim") or {}
+        onboarding = vals.get("onboarding") or {}
+        vis_msgs = history(vals)
+        # Build a meaningful human title for the thread
+        patient = role.get("patient_name")
+        pol_num = policies[0].get("policy_number") if policies else None
+        insurer = policies[0].get("insurer") if policies else None
+        if patient and pol_num:
+            title = f"{patient} · {pol_num}"
+        elif pol_num:
+            title = f"{insurer or 'Policy'} ({pol_num})"
+        elif docs:
+            title = docs[0].get("filename") or f"Claim {tid[:8]}"
+        elif vis_msgs:
+            title = vis_msgs[0]["text"][:42]
+        else:
+            title = f"Claim {tid[:8]}"
+        summaries.append({
+            "thread_id": tid,
+            "title": title,
+            "stage": claim.get("stage") if onboarding.get("complete") else "onboarding",
+            "onboarding_complete": bool(onboarding.get("complete")),
+            "doc_count": len(docs),
+            "message_count": len(vis_msgs),
+            "claim_type": (vals.get("claim_info") or {}).get("claim_type"),
+        })
     return summaries
 
 
@@ -425,6 +468,111 @@ def get_thread(thread_id: str, request: Request) -> ChatResponse:
     except Exception as exc:
         logger.exception("Refresh failed on thread %s", thread_id)
         raise HTTPException(status_code=500, detail="Could not load the saved claim. Please try again.") from exc
+
+
+@contextmanager
+def checkpoint_edit(request: Request):
+    """Use one transaction for erasing and replacing a Postgres thread's saved state."""
+    pool = request.app.state.db_pool
+    if pool is None:
+        yield request.app.state.graph
+    else:
+        with pool.connection() as conn, conn.transaction():
+            yield build_graph(PostgresSaver(conn))
+
+
+def erase_uploads(thread_id: str, document_id: str | None = None) -> None:
+    """Remove only server-owned upload files for a thread or a single document."""
+    root = Path(get_settings().upload_dir).resolve()
+    folder = root / thread_id
+    if not folder.is_dir():
+        return
+    resolved = folder.resolve()
+    if resolved.parent != root or resolved.name != thread_id:
+        raise HTTPException(409, "The upload folder does not match this session.")
+    try:
+        for path in folder.iterdir():
+            if re.fullmatch(r"[a-f0-9]{32}\.(pdf|png|jpg)", path.name) and (not document_id or path.stem == document_id):
+                path.unlink(missing_ok=True)
+        if not any(folder.iterdir()):
+            folder.rmdir()
+    except OSError as exc:
+        logger.exception("Could not erase uploads for session %s", thread_id)
+        raise HTTPException(500, "Could not remove the uploaded file. Try deleting it again.") from exc
+
+
+def without_document(values: dict, doc: dict) -> dict:
+    """Remove the uploaded record and its direct references, then recompute evidence-derived state."""
+    doc_id = doc["id"]
+    state = dict(values)
+    # Clear a version pointer when its source file is removed; retain the other version's status.
+    state["documents"] = [
+        {**d, "version_of": None, "version_choice": None} if d.get("version_of") == doc_id else d
+        for d in values["documents"] if d["id"] != doc_id
+    ]
+    state["policies"] = [p for p in values.get("policies", []) if p["doc_id"] != doc_id]
+    legacy_name = None if any(d["filename"] == doc["filename"] for d in state["documents"]) else doc["filename"]
+    state["messages"] = [
+        m for m in values.get("messages", [])
+        if not (isinstance(m, HumanMessage) and m.name == "upload" and
+                (m.id == f"upload-{doc_id}" or (legacy_name and not (m.id or "").startswith("upload-") and
+                 m.text == UPLOAD_PREFIX + legacy_name)))
+    ]
+    if (state.get("claim_info") or {}).get("policy_doc_id") == doc_id:
+        state["claim_info"] = {k: v for k, v in state["claim_info"].items() if k != "policy_doc_id"}
+    if (state.get("authority") or {}).get("proof_doc_id") == doc_id:
+        state["authority"] = None
+    if (state.get("dispute") or {}).get("decision_doc_id") == doc_id:
+        state["dispute"] = {}
+    state["claims_history"] = [
+        {**round_, "policy_doc_id": None, "policy_number": None, "insurer": None}
+        if round_.get("policy_doc_id") == doc_id else round_ for round_ in values.get("claims_history", [])
+    ]
+    state["notifications"] = [n for n in values.get("notifications", []) if doc_id not in n["id"]]
+    state.update(submission_approval=None, requested_action=None)
+    state.update(check_onboarding(state))
+    state.update(review_claim(state))
+    if route_after_review(state) == "verify_payment":
+        state.update(verify_payment(state))
+    return state
+
+
+@router.delete("/thread/{thread_id}/documents/{document_id}", response_model=ChatResponse)
+def delete_document(thread_id: str, document_id: str, request: Request) -> ChatResponse:
+    """Purge an upload from current and historical checkpoints and remove its local file."""
+    checked_thread(thread_id)
+    validate_upload_id(document_id)
+    config = {"configurable": {"thread_id": thread_id}}
+    with thread_lock(thread_id):
+        snapshot = snapshot_of(request, thread_id)
+        doc = next((d for d in snapshot.values.get("documents", []) if d["id"] == document_id), None)
+        if doc:
+            state = without_document(snapshot.values, doc)
+            with checkpoint_edit(request) as graph:
+                # Reseed only the sanitized state so older document blobs and pending writes are erased.
+                delete_checkpoints(graph.checkpointer, thread_id)
+                pending_policy = any(p["status"] == "pending" for p in state["policies"])
+                graph.update_state(config, state, as_node="check_onboarding" if pending_policy else "reply_off_topic")
+                if pending_policy:
+                    graph.invoke(None, config)
+            snapshot = snapshot_of(request, thread_id)
+        # An idempotent retry can clean a file left behind by a filesystem error after the commit.
+        erase_uploads(thread_id, document_id)
+        return ChatResponse(**shape(request, thread_id, snapshot.values, snapshot.interrupts, with_history=True))
+
+
+@router.delete("/thread/{thread_id}", status_code=204)
+def delete_thread(thread_id: str, request: Request) -> Response:
+    """Permanently delete one session's checkpoints, files and webhook lookup."""
+    checked_thread(thread_id)
+    with thread_lock(thread_id):
+        delete_checkpoints(request.app.state.graph.checkpointer, thread_id)
+        index = request.app.state.claim_threads
+        for claim_id, owner in index.copy().items():
+            if owner == thread_id and index.get(claim_id) == thread_id:
+                index.pop(claim_id, None)
+        erase_uploads(thread_id)
+    return Response(status_code=204)
 
 
 @router.post("/action", response_model=ChatResponse)
@@ -451,7 +599,7 @@ def press_action(body: ActionRequest, request: Request) -> ChatResponse:
 
 @router.post("/connection", response_model=ChatResponse)
 def link_connection(body: ConnectionRequest, request: Request) -> ChatResponse:
-    """Bind a connected insurer account to this claim, using the code shown on the connector page. Mock only.
+    """Bind a verified gateway case to this claim by its case id. Mock only; used by API tests.
 
     The TPA must be connected there, because that consent covers submission and status reads.
     """
@@ -461,10 +609,10 @@ def link_connection(body: ConnectionRequest, request: Request) -> ChatResponse:
         if exc.code == "NOT_CONFIGURED":
             raise HTTPException(status_code=503, detail="Insurer connections are not enabled on this server.") from exc
         if exc.status == 0:
-            raise HTTPException(status_code=503, detail="The connector page is not reachable. Try again.") from exc
-        raise HTTPException(status_code=400, detail="That code is not valid or has expired. Open the connector page again.") from exc
+            raise HTTPException(status_code=503, detail="The connector service is not reachable. Try again.") from exc
+        raise HTTPException(status_code=400, detail="That case is not valid or has expired. Verify it again under Connect tools.") from exc
     if "read_claim" not in tools:
-        raise HTTPException(status_code=400, detail="Connect Medivista TPA on the connector page first. It allows submission.")
+        raise HTTPException(status_code=400, detail="Connect Medivista TPA under Connect tools first. It allows submission.")
     linked_at = datetime.now().astimezone().isoformat(timespec="seconds")
     write_state(request, body.thread_id, {"connection": {"case_id": body.code, "linked_at": linked_at, "status": "active"}})
     return ChatResponse(**refresh(request, body.thread_id))
@@ -509,7 +657,7 @@ def sync_workspace_connections(body: ConnectionRequest, request: Request) -> Cha
 
 @router.post("/connection/remove", response_model=ChatResponse)
 def unlink_connection(body: ThreadRequest, request: Request) -> ChatResponse:
-    """Forget the connected account for this claim. Consent itself is revoked on the connector page."""
+    """Forget the connected account for this claim. Consent itself is revoked under Connect tools."""
     write_state(request, body.thread_id, {"connection": None})
     return ChatResponse(**refresh(request, body.thread_id))
 

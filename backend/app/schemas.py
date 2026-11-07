@@ -32,11 +32,12 @@ class ChatResponse(BaseModel):
         onboarding: {"complete": bool, "missing": [...]} from O2.
         claim: Claim review from C1 (stage, checklist, issues, query, decision), plus payment from P1 once decided.
         documents: Document records (uploaded and connector-read), without server file paths.
+        processed_document_id: The upload or retry's document id, when applicable.
         actions: Next-step buttons derived from state (empty while a card waits for an answer).
         notifications: In-app notices (insurer updates, reminders, warnings).
         submission: Submission route and status, or None.
         connection: Connected insurer account status ({"status", "linked_at"}), or None.
-        history: Conversation as [{"role": "user" | "agent", "text"}]; only on GET /api/thread.
+        history: Conversation as [{"role": "user" | "agent", "text"}] on hydration and document changes.
         answers: Hydrated form fields (members, claimType, patientName) from saved policies and claim_info.
         authority: The caregiver's authority record with its current status, or None (DEV-025).
         audit: Who did what and when, newest first, at most 50 entries (DEV-025).
@@ -50,6 +51,7 @@ class ChatResponse(BaseModel):
     onboarding: dict[str, Any] | None = None
     claim: dict[str, Any] | None = None
     documents: list[dict[str, Any]] | None = None
+    processed_document_id: str | None = None
     actions: list[dict[str, Any]] = Field(default_factory=list)
     notifications: list[dict[str, Any]] = Field(default_factory=list)
     submission: dict[str, Any] | None = None
@@ -71,7 +73,7 @@ class ActionRequest(BaseModel):
 
 
 class ConnectionRequest(BaseModel):
-    """The connection code shown on the connector page after the user approved access."""
+    """The verified gateway case id for this claim (set by the Connect tools panel, or by API tests)."""
 
     thread_id: str = Field(pattern=THREAD_ID_PATTERN)
     code: str = Field(pattern=r"^[A-Za-z0-9_-]{8,64}$")
