@@ -48,3 +48,15 @@ Each change was found by the live end-to-end run and is covered by a backend tes
 - M1 marks reminders that are no longer due as resolved.
 - C1 counts only documents held before a query as "already sent".
 - Every node, model call and tool call is timed (`TRACE_LOG`), and traced to LangSmith when a key is set.
+
+## API added after v0.8 (2026-11-07, APP-043)
+
+These routes act on stored state, not on the graph's node order, so the graph itself is unchanged:
+
+- `POST /api/thread/{id}/documents/{doc}/retry` reads a failed document again (O1).
+- `DELETE /api/thread/{id}/documents/{doc}` purges one document from the current and earlier checkpoints and removes its file; onboarding is rechecked if a policy is still pending.
+- `DELETE /api/thread/{id}` deletes the whole session: checkpoints, files and the webhook lookup.
+
+---
+
+Previous: [G2 Lifecycle and state](g2-lifecycle-state.md) | [Index](../../README.md) | Next: [G4 Sequence and recovery](g4-sequence-recovery.md)

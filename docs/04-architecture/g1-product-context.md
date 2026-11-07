@@ -17,3 +17,7 @@ Source: [g1-product-context.excalidraw](../diagrams/src/g1-product-context.excal
 Every integration carries one label: documented, partner-only, manual handoff or unverified. A public website or app is not taken as proof of API access.
 
 The prototype's connector gateway and mock payer (G3, G5) stand in for an insurer or TPA API that has **not** been verified to exist for claimants. In G1 that route stays a manual handoff until access is confirmed. The connector shows how Claimwise would behave with such access (consent per tool, idempotent submission, lost-answer recovery). It is not evidence that the access exists.
+
+---
+
+Previous: [Architecture graphs](README.md) | [Index](../../README.md) | Next: [G2 Lifecycle and state](g2-lifecycle-state.md)

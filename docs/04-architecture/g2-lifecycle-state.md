@@ -31,3 +31,7 @@ A pause is a LangGraph interrupt saved with its card in the checkpoint. Any othe
 ## Invalidation and reopening
 
 Both are listed in the panels at the foot of the graph. In short: any change to the pack makes its approval stale, and a withdrawn authority clears it. A revised decision reopens only the decision and payment check, and a balance claim starts a new round on the other policy.
+
+---
+
+Previous: [G1 Product context](g1-product-context.md) | [Index](../../README.md) | Next: [G3 Function execution (agent graph v0.8)](g3-function-execution.md)

@@ -1,6 +1,6 @@
-"""Generate graphs G2 to G5: an editable Excalidraw source and an SVG export from one layout each.
+"""Generate graphs G2, G3 and G5: an editable Excalidraw source and an SVG export from one layout each.
 
-G1 (product context) is drawn by hand in Excalidraw and is not generated here.
+G1 (product context) and G4 (sequence and recovery) are drawn in Excalidraw and are not generated here.
 Run from the repository root:  python docs/diagrams/make_graphs.py
 Outputs: docs/diagrams/src/gN-*.excalidraw (open in excalidraw.com to edit) and docs/diagrams/export/gN-*.svg.
 Edits made by hand in Excalidraw are overwritten on the next run, so change the layout here first.
@@ -331,12 +331,15 @@ def g3() -> None:
          "r1": d.box(1270, 460, 170, 60, "R1 reply_off_topic\nfixed text, no change"),
          "t1": d.box(1480, 330, 220, 100, "T1 tools\nclaim_deadline, record_role,\nupdate_claim, "
                      "prepare_submission\n(PAUSE: approve pack)", "tool"),
-         "api": d.box(30, 330, 360, 215, "API  v0.8\nPOST /api/documents (same file twice -> 409)\n"
+         "api": d.box(30, 330, 360, 250, "API  v0.8 (+ delete and retry, 2026-11-07)\n"
+                      "POST /api/documents (same file twice -> 409)\n"
                       "POST /api/chat (+ /stream), /api/resume\n/resume checks policy corrections (422)\n"
                       "POST /api/action -> button press (X1)\nPOST /api/claim-type (no model)\n"
                       "GET /api/thread/{id} -> refresh (M1..C1)\nGET /api/threads?ids= (own ids only)\n"
                       "POST /api/connection, /authority (+ /withdraw)\nGET /api/pack/{id} (+ /pdf, /eml)\n"
-                      "POST /api/webhooks/mock (HMAC) -> refresh", "new", size=11)}
+                      "POST /api/webhooks/mock (HMAC) -> refresh\n"
+                      "POST /api/thread/{id}/documents/{doc}/retry\n"
+                      "DELETE /api/thread/{id} (+ /documents/{doc})", "new", size=11)}
     d.arrow([right(n["start"]), left(n["m1"])])
     d.arrow([bottom(n["m1"]), top(n["gw"])], "")
     d.arrow([right(n["m1"]), left(n["o1"])])
@@ -398,115 +401,12 @@ def g3() -> None:
     d.save()
 
 
-# ---------------------------------------------------------------- G4
-LIFELINES = ["User", "Web app", "API (FastAPI)", "Agent graph", "Model\n(Gemini, Groq)", "Checkpoints\n(Neon)",
-             "Connector\ngateway", "Payer (mock)"]
-
-
-def g4() -> None:
-    """G4 sequence and recovery: one full reimbursement journey, including an accepted-but-lost answer."""
-    steps = [
-        ("h", "1  Onboarding"),
-        (0, 1, "upload policy PDF"), (1, 2, "POST /api/documents"), (2, 3, "run M1 -> O1"),
-        (3, 4, "O1: read policy (structured fields)"), (4, 3, "insurer, number, members, period", "r"),
-        (3, 5, "save checkpoint + PAUSE O3 confirm_policy"), (2, 1, "confirm card", "r"),
-        (0, 1, "correct sum insured, confirm"), (1, 2, "POST /api/resume (422 if a value is invalid)"),
-        (2, 3, "resume -> O2 -> C1 -> A1"), (3, 4, "A1: next step (+ tool record_role)"),
-        (4, 3, "reply + tool call", "r"), (0, 1, "Reimbursement button"), (1, 2, "POST /api/claim-type (no model)"),
-        ("h", "2  Evidence and approval"),
-        (0, 1, "upload discharge summary and bill"), (1, 2, "POST /api/documents x2"),
-        (2, 3, "O1 reads each; C1 checks names, dates, totals"), (0, 1, "Prepare claim pack"),
-        (1, 2, "POST /api/action prepare_pack"), (2, 3, "X1: build pack, hash h1"),
-        (3, 5, "PAUSE approve pack (card saved)"), (0, 1, "Approve"), (1, 2, "POST /api/resume approved"),
-        (3, 5, "submission_approval = h1"),
-        ("h", "3  Submission with the answer lost (fault: drop_response_after_commit)"),
-        (0, 1, "Submit to insurer"), (1, 2, "POST /api/action submit"), (2, 3, "X1 submit_via_connector"),
-        (3, 6, "find_claims(ref)"), (6, 7, "GET claims?client_reference=ref"), (7, 3, "none", "r"),
-        (3, 6, "submit_claim(body, Idempotency-Key = ref)"), (6, 7, "POST /claims"),
-        (7, 7, "commits CLM-1"), (7, 6, "500 after commit: answer lost", "r"), (6, 3, "unclear error", "r"),
-        (3, 6, "recover: find_claims(ref)"), (6, 7, "GET claims?client_reference=ref"),
-        (7, 3, "CLM-1 already held", "r"), (3, 5, "submission: submitted, claim_id CLM-1"),
-        (2, 1, "Submitted. Settlement due in 15 days", "r"),
-        ("h", "4  Waiting: an insurer query"),
-        (7, 2, "signed webhook claim.query_raised (HMAC)"), (2, 3, "refresh: M1 read_claim"),
-        (3, 6, "read_claim(CLM-1)"), (6, 3, "query: Discharge Card, lab report", "r"),
-        (3, 5, "letter record (source connector) + notification"), (0, 1, "upload lab report"),
-        (0, 1, "Send 2 documents to the insurer"), (2, 3, "X1 -> PAUSE approve query reply"),
-        (0, 1, "Approve"), (3, 6, "answer_query(CLM-1, documents)"), (6, 7, "POST /claims/CLM-1/documents"),
-        ("h", "5  Decision, payment and proof of money"),
-        (7, 2, "webhooks: decided, paid"), (2, 3, "M1 read_claim"), (6, 3, "decision + payment UTR", "r"),
-        (0, 1, "upload bank statement"), (3, 4, "O1: read statement credits"), (4, 3, "credits", "r"),
-        (3, 3, "P1: UTR and amount match -> payment_verified"), (2, 1, "Paid in full, verified", "r"),
-    ]
-    xs = [90 + i * 190 for i in range(len(LIFELINES))]
-    note_x = xs[-1] + 110
-    gap, y0 = 25, 150
-    height = y0 + sum(40 if s[0] == "h" else gap for s in steps) + 40
-    d = Diagram("g4-sequence-and-recovery", note_x + 470, height)
-    d.text(20, 32, "G4  Sequence and recovery graph: one reimbursement claim from upload to verified payment "
-           "(BUILT, run live as J1 and J6, 2026-11-06)", 20, bold=True, width=1700)
-    d.text(20, 56, "Solid = request, dashed = response. Every model call reads documents only; every write to the "
-           "insurer follows an approval. Function ids match G3.", 13, color=MUTED, width=1700)
-    for x, name in zip(xs, LIFELINES):
-        kind = {"User": "human", "Model\n(Gemini, Groq)": "model", "Checkpoints\n(Neon)": "store",
-                "Connector\ngateway": "ext", "Payer (mock)": "ext"}.get(name, "det")
-        d.box(x - 75, 80, 150, 46, name, kind)
-        d.arrow([(x, 126), (x, height - 20)], dashed=True, color="#adb5bd", head=False)
-    y = y0
-    for step in steps:
-        if step[0] == "h":
-            y += 12
-            d.box(10, y - 14, xs[-1] + 90, 22, "", "none", rounded=False)
-            d.text(18, y + 2, step[1], 13, bold=True, width=900)
-            y += 28
-            continue
-        src, dst, label, *style = step
-        if src == dst:
-            d.arrow([(xs[src], y - 8), (xs[src] + 40, y - 8), (xs[src] + 40, y + 6), (xs[src] + 4, y + 6)])
-            d.text(xs[src] + 48, y + 3, label, 11, color=MUTED, width=300)
-        else:
-            d.arrow([(xs[src], y), (xs[dst], y)], dashed=bool(style))
-            d.text((xs[src] + xs[dst]) / 2, y - 5, label, 11, "middle", MUTED, width=300, backing=True)
-        y += gap
-    panel(d, note_x, 150, 450, 200, "Recovery: accepted but the answer was lost", [
-        "The client reference is a hash of the thread and the",
-        "approved pack. It is also the Idempotency-Key, so the",
-        "payer returns the same claim for the same key.",
-        "Before every send, and after any unclear failure, the",
-        "payer is asked whether it already holds the reference.",
-        "If that lookup fails too: status unconfirmed. Nothing",
-        "is resent blind; M1 repeats the lookup on every open",
-        "and adopts the claim when it appears.",
-        "Verified live: one claim at the payer after a dropped",
-        "answer and a double click (V-10, V-09, V-31).",
-    ])
-    panel(d, note_x, 370, 450, 180, "Other failure exits", [
-        "Payer down (5xx, timeout): unconfirmed, reply says so.",
-        "Refused (422 with a reason): shown, no retry.",
-        "Consent removed or session ended (401/403):",
-        "  connection expired; reconnect, then retry.",
-        "Webhook with a bad signature: 401, no state change.",
-        "Webhook lost: the next thread open runs M1 anyway.",
-        "Model down or rate-limited: Groq fallback; a failed",
-        "  parse leaves the document 'failed', upload again.",
-        "Text inside letters is data, never instructions (J7).",
-    ])
-    panel(d, note_x, 570, 450, 130, "Long waits and resume", [
-        "No worker waits on the insurer: state lives in the",
-        "checkpoint, M1 reads the claim on open or webhook.",
-        "Pauses (O3, approve pack, approve letter) survive a",
-        "browser close or a server restart (V-34).",
-        "Reminders are dated and deterministic (no duplicates);",
-        "they resolve when the condition passes.",
-    ])
-    d.save()
-
-
 # ---------------------------------------------------------------- G5
 def g5() -> None:
     """G5 data and context: stores, ownership, provenance, versions, what the model sees, retention."""
-    d = Diagram("g5-data-and-context", 1860, 1100)
-    d.text(20, 32, "G5  Data and context graph (BUILT prototype, synthetic data only, 2026-11-06)", 20, bold=True,
+    d = Diagram("g5-data-and-context", 1860, 1265)
+    d.text(20, 32, "G5  Data and context graph (BUILT prototype, synthetic data only, 2026-11-06; updated 2026-11-08)",
+           20, bold=True,
            width=1500)
     d.text(20, 56, "Where each fact comes from, who owns it, where it is stored, what the model sees, and how a "
            "correction or a new version flows downstream.", 13, color=MUTED, width=1700)
@@ -607,17 +507,32 @@ def g5() -> None:
         "  archived documents are kept as claim evidence.",
         "Built: the thread list only returns ids the browser already",
         "  holds; the server never lists every claim.",
-        "Not built (TBD before real users): user login and tenancy,",
-        "  deleting a thread and its files, a retention period for",
-        "  checkpoints, uploads and traces, export of a user's data.",
+        "Built: the user can delete one document (purged from current",
+        "  and earlier checkpoints, file removed) or a whole session.",
+        "Not built (TBD before real users): user login and tenancy, a",
+        "  retention period, export of a user's data.",
         "LangSmith receives prompts and outputs: keep it to synthetic",
         "  data, or turn tracing off, until a privacy review approves it.",
         "Secrets (model keys, LangSmith key, connector key, webhook",
         "  secret) live in backend/.env, never in state or logs.",
     ])
+    # Which context belongs to one person, the household, this claim, or every claim (page 4 of the brief).
+    panel(d, 20, 1105, 1820, 145, "Context classes: who it belongs to and how far it travels", [
+        "Personal (one person, in this claim's thread): the patient's medical documents (discharge summary, bills, "
+        "lab reports), the bank statement, messages; the caregiver's proof of authority.",
+        "Household or shared: policy facts that cover several members (family floater, employer cover), the authority "
+        "the patient grants a caregiver, the choice of which policy to claim first.",
+        "  Built: held in each claim's thread. Proposed: a household profile shared by the family's claims.",
+        "Task-specific (this claim only): claim type, pack and approval hashes, submission and client reference, "
+        "queries, decision, payment, dispute, reminders, audit.",
+        "Reusable across cycles: rule tables in code (TATs, required documents, Ombudsman limits) and the extraction "
+        "schema. Proposed, not built: reuse confirmed policy facts",
+        "  and an unexpired authority for the next claim. Today each claim starts a new thread and nothing is carried "
+        "over automatically.",
+    ])
     d.save()
 
 
 if __name__ == "__main__":
-    g2(), g3(), g4(), g5()
-    print("wrote G2 to G5")
+    g2(), g3(), g5()
+    print("wrote G2, G3 and G5")

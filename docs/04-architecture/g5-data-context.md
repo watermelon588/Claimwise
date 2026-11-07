@@ -23,6 +23,19 @@ A1 receives the rules, the onboarding context, the claim context (policy facts, 
 
 Correcting a policy fact updates `policies`. O2 then rechecks and C1 recomputes, so the pack hash changes and the approval becomes stale until the user approves again. A second file of the same type pauses the pack for a replace-or-keep choice. A balance claim archives the first round's letters and encloses them.
 
-## Retention
+## Context classes
 
-The prototype deletes rejected uploads and keeps superseded and archived documents as evidence. Several things are not built yet and must be decided before real users: login and tenancy, deleting a thread and its files, retention periods, and data export. These are TBD with the owner.
+| Class | What belongs to it | Built today | Proposed |
+|---|---|---|---|
+| Personal | The patient's medical documents (discharge summary, bills, lab reports), the bank statement, messages; the caregiver's proof of authority | Held in the claim's own thread | None |
+| Household or shared | Policy facts that cover several members (family floater, employer cover), authority the patient grants a caregiver, the choice of which policy to claim first | Held in each claim's thread | A household profile shared by the family's claims |
+| Task-specific | Claim type, pack and approval hashes, submission and client reference, queries, decision, payment, dispute, reminders, audit | Held in the claim's thread | None |
+| Reusable across cycles | Rule tables in code (TATs, required documents, Ombudsman limits) and the extraction schema | Shared by every claim | Reuse confirmed policy facts and an unexpired authority for the next claim; today each claim starts a new thread |
+
+## Retention and deletion
+
+The prototype deletes rejected uploads at once and keeps superseded and archived documents as evidence. The user can delete one document, which is purged from the current and earlier checkpoints and its file removed, or a whole session with its checkpoints, files and webhook lookup (`DELETE /api/thread/{id}/documents/{doc}`, `DELETE /api/thread/{id}`). Not built yet and to be decided before real users: login and tenancy, a retention period, and data export. These are TBD with the owner.
+
+---
+
+Previous: [G4 Sequence and recovery](g4-sequence-recovery.md) | [Index](../../README.md) | Next: [Technical reference](../05-technical/README.md)
