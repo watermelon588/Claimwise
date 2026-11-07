@@ -42,8 +42,9 @@ Situation: Aman Sharma, a caregiver, acts for the patient, Ramesh Sharma. Aman i
 | 9 | Uploads the insurer's reply rejecting the grievance | O1, `ombudsman_check` | Ombudsman route open | None | Draft Ombudsman complaint offered (V-24) |
 | 10 | Approves the complaint, records the filing | X1 `draft_ombudsman`, `ombudsman_sent` | Dispute `ombudsman_filed` | User files it | Complaint shown for approval first (V-24) |
 | 11 | Uploads the revised decision | O1, C1, P1, `dispute_view` | Dispute `revised`; payment `top_up_due` | None | Extra money shown as a top-up due, not a bank error. Documents and submission untouched (V-25) |
+| 12 | Uploads the top-up settlement letter and a bank statement showing the top-up credit | O1, C1, P1 | `top_up_due` clears (a payment dated after the revised decision exists); the top-up credit is matched by UTR or amount; `payment_verified` | None | **Specification (not run):** expected from `top_up_due` and `check_payment` in `backend/app/agent/payment.py`. Unit test `test_top_up_due_after_a_revised_decision` covers the top-up and the short-payment check after a revision; the verified credit is not yet run live |
 
-Why this passes the first apparent success: "payment made" at step 7 is not the end. The dispute reopens only the decision and the payment check, and the claim is complete when the top-up arrives in the bank.
+Why this passes the first apparent success: "payment made" at step 7 is not the end. The dispute reopens only the decision and the payment check, and the claim is complete when the top-up arrives in the bank (step 12).
 
 ## C. Failure and follow-up: query, lost answer, outage, manual route (J5, J6, J7)
 
@@ -61,3 +62,7 @@ Ramesh is covered by an individual policy and an employer's group policy. Both a
 ## E. Representative not registered at the payer (J4)
 
 A caregiver with valid proof submits, but the payer refuses because it does not recognise the representative. Claimwise records the refusal with its reason and keeps the connection (a refusal is not an expired login). It does not retry; the caregiver must register with the insurer first (V-21).
+
+---
+
+Previous: [Mock External Systems: Architecture and Routes Documentation](../05-technical/mock-services-architecture-and-routes.md) | [Index](../../README.md) | Next: [UX sketches](ux-sketches.md)

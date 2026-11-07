@@ -24,4 +24,4 @@ The detailed function catalogue and state/transition diagrams are tracked separa
 
 ---
 
-Previous: [Research sources](../02-research/sources.md) | [Index](../../README.md) | Next: [API and tool matrix](api-tool-matrix.md)
+Previous: [G5 Data and context](../04-architecture/g5-data-context.md) | [Index](../../README.md) | Next: [Function catalogue](function-catalogue.md)

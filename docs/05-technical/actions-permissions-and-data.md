@@ -25,8 +25,18 @@
 | Mock provider data and credentials | SQLite and generated files in the mock service. Provider grants in the gateway process. Server keys supplied via configuration. | Separate synthetic data from live data and keep credentials server-side. Verify retention, revocation and audit requirements with each provider. |
 | Audit record | Claim-level record of actor, action, time and detail in the checkpoint. | Verify identity independently and define durable audit storage and access policy. |
 
-The prototype has separate deletion surfaces for checkpoints, uploaded files, browser history and mock records. Production retention periods and an authenticated deletion workflow are pending decisions. Files and provider text are input data and cannot provide authority. [Schemas](schemas.md) · [Rollout gates](../07-delivery/feasibility-and-rollout.md)
+### Current deletion and access
+
+- `DELETE /api/thread/{id}/documents/{document_id}` removes the server upload and historical checkpoint copies of that record. Claimwise rebuilds the case without the document and its direct evidence references, recomputes the review and invalidates pack approval. Separate conversation text and provider records have their own lifecycles.
+- `DELETE /api/thread/{id}` clears the thread's checkpoints, writes, blobs, uploads and in-memory webhook lookup. The browser removes its summary after success. Mock provider records, exported files, and tracing backends are separate stores.
+- **Prototype limit.** Workspace routes use the thread ID in a guest session. The browser sends its own IDs for listing, and a pack checks document membership. Neither check establishes authenticated user ownership.
+
+### Proposed production controls
+
+**Specification (not run).** Authenticate each actor and derive access server-side from the tenant, patient and current case membership. Check that membership and the target resource on every read, file view, stream and mutation, including deletion. Check active representative scope separately from case membership, and verify the recipient before an external write. Use deletion events to track cleanup in all applicable stores and communicate external retention obligations. For the synthetic pilot, clear demo records at the end of each rehearsal and honor earlier deletion requests. Files and provider text are evidence inputs and cannot provide authority. [API implementation](../../backend/app/api/routes.py) · [Schemas](schemas.md) · [Rollout gates](../07-delivery/feasibility-and-rollout.md)
+
+**Retention proposal, pending approval.** Keep the material needed while the case is open. Delete originals and working checkpoints by default 90 days after confirmed closure, or earlier on an authenticated owner request. Offer an export before scheduled deletion. Track active-store deletion separately from backup expiry and provider-held records. Set audit, backup and legally required retention before a real-data pilot. The guest prototype has no automatic retention schedule.
 
 ---
 
-Previous: [Execution and memory](execution-and-memory.md) | [Index](../../README.md) | Next: [UX sketches](../06-experience/ux-sketches.md)
+Previous: [Execution and memory](execution-and-memory.md) | [Index](../../README.md) | Next: [Mock provider connectors](provider-connectors.md)

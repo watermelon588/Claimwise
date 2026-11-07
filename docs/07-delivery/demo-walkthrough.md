@@ -844,3 +844,7 @@ Not shown on camera because they are API-level checks: V-30 (originals only from
 | Mock request returns `409 INVALID_TRANSITION` | The claim is in the wrong status for that operation, or the ID is not the newest claim | Check the claim ID and **View claim** status |
 | Uploads fail with a model error | Gemini daily quota | Use `GOOGLE_API_KEY2` or a paid key; Groq is the last fallback |
 | Mock service offline in Tab B | Port 8100 not running or in use | Restart Terminal 1, or use another port and set `CLAIMWISE_MOCK_PORT` for the gateway |
+
+---
+
+Previous: [Performance and observability report](performance-report.md) | [Index](../../README.md) | Next: [Hosting the Claimwise demo](hosting.md)

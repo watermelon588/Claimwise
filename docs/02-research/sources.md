@@ -28,6 +28,8 @@ Regulatory texts are cited as stated in their published versions. Later amendmen
 | S-10 | Press Information Bureau release 2037634, Lok Sabha reply on NHCX | 2024-07-26 | Not opened | Secondary | Known from a search summary only. |
 | S-24 | Council for Insurance Ombudsmen, Annual Report 2023-24 | FY 2023-24 | [cioins.co.in annual report](https://cioins.co.in/annualreports/AnnualReport2023-2024.pdf) | Primary | 104 pages. Table figures are being checked visually before use. |
 | S-29 | Council for Insurance Ombudsmen, complaint procedure | Read 2026-11-06 | [Official procedure](https://www.cioins.co.in/Procedure/Index) | Primary | Public filing and eligibility guidance. Evidence of a human handoff, not of Claimwise API access. |
+| S-30 | Council for Insurance Ombudsmen, January 2019 individual mediclaim awards, award with NEFT dated 2018-11-29 | 2019-01, checked 2026-11-07 | [Published award collection](https://www.cioins.co.in/AwardsMonthwise/Jan2019/IndividualMediclaim_Jan_2019.pdf) | Primary | Records the claimed amount, a smaller credit and a request for a breakdown. Does not establish a letter-to-credit mismatch. |
+| S-31 | National Health Authority, NDHM Health Data Management Policy, clause 9.2 | 2020, checked 2026-11-07 | [Official policy PDF](https://abdm.gov.in/static/media/health_management_policy_bac9429a79.80f74bc3e039c00acd4f.pdf) | Primary | Documents withdrawable consent for health-data processing. Does not establish a mid-claim caregiver-authority case. |
 
 ## Industry, intermediaries and reporting
 
@@ -60,6 +62,11 @@ Public Reddit threads, read in full including replies. Usernames and personal de
 | C-12 | Repeated discharge-summary requests during cancer treatment (archived copy) | 2026-02 | [Archived snapshot](https://reddit.sentinel-team.org/posts/1qxdrfj/snapshots/2026-02-06T15%3A01%3A47.818004Z) | Secondary |
 | C-13 | HDFC ERGO reimbursement claim settled but not credited | 2026-06 | [r/indiahealthinsurance](https://www.reddit.com/r/indiahealthinsurance/comments/1u5a9f8/) | Primary, self-reported |
 
+
+## Follow-up evidence search
+
+On 2026-11-07, public searches for a bank credit differing from a written health-claim settlement and a caregiver withdrawing authorization during a parent's claim did not produce a source meeting the exact scenarios. Published short-settlement awards can show a difference between claimed and paid amounts without documenting a letter-to-credit mismatch. Provider authorization terms describe process or permission, without documenting a mid-case withdrawal. [Published award sample](https://cioins.co.in/GIC/mediclaim/Mediclaim-Book3.pdf) · [Provider authorization terms](https://www.acko.com/health-insurance/terms-conditions-of-authorization/) · [Evidence gaps](evidence-register.md#9-gaps)
+
 ---
 
-Previous: [Personas and situations](personas-and-situations.md) | [Index](../../README.md) | Next: [Technical reference](../05-technical/README.md)
+Previous: [Personas and situations](personas-and-situations.md) | [Index](../../README.md) | Next: [Lifecycle map](../03-lifecycle/lifecycle-map.md)

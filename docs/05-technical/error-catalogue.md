@@ -19,4 +19,4 @@ A non-claim upload can also be rejected during document classification and retur
 
 ---
 
-Previous: [Schemas](schemas.md) | [Index](../../README.md) | Next: [Models and retrieval](models-and-retrieval.md)
+Previous: [Schemas and example payloads](schemas.md) | [Index](../../README.md) | Next: [Models and retrieval](models-and-retrieval.md)

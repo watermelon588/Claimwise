@@ -23,6 +23,22 @@ Estimate monthly cost as fixed service hosting plus storage and database usage, 
 | Case storage | Active cases, retained checkpoints, upload volume, and required storage duration. [Neon pricing](https://neon.com/pricing) · [Render disks](https://render.com/docs/disks) |
 | Pilot operations | Number of cases multiplied by review, handoff, and exception-handling effort. Staff time and provider access are planning assumptions. |
 
+### Worked model-cost estimate
+
+The **J1 standard reimbursement case** in [the original run](../../e2e/results/run-1-full.json) used 17 model calls, from document intake to a verified bank credit. Filter the QA trace to that case and group model callbacks by node and provider. The call counts and tokens below come from the same trace as the [performance report](performance-report.md). The estimate applies public standard on-demand rates to the recorded usage; it is not a provider invoice.
+
+| Operation | Calls | Input tokens | Output tokens | USD per million tokens (input / output) | USD per case |
+|---|---:|---:|---:|---:|---:|
+| Gemini 3.1 Flash-Lite document extraction (O1) | 5 | 5,295 | 992 | $0.25 / $1.50 | $0.00281175 |
+| Gemini 3.1 Flash-Lite intent classification (I1) | 3 | 377 | 30 | $0.25 / $1.50 | $0.00013925 |
+| Gemini 3.1 Flash-Lite agent replies and tool selection (A1) | 9 | 23,016 | 478 | $0.25 / $1.50 | $0.00647100 |
+| Groq GPT-OSS 20B text fallback | 0 | 0 | 0 | $0.075 / $0.30 | $0 |
+| **Total** | **17** | **28,688** | **1,500** | | **$0.00942200** |
+
+Each row uses `(input tokens × input rate + output tokens × output rate) / 1,000,000`. Rates checked 2026-11-07, in USD. Assume standard non-audio input, uncached tokens, and no batch discount. J1 reported no failed model callbacks. Provider-side retries, reasoning tokens or other usage missing from the trace can change actual charges. The full QA trace includes seven Groq fallback calls, so J1's zero fallback is case-specific. [Gemini standard pricing](https://ai.google.dev/gemini-api/docs/pricing) · [Groq GPT-OSS 20B pricing](https://console.groq.com/docs/model/openai/gpt-oss-20b)
+
+The synthetic demo assumes **$0/month in fixed hosting fees** while it fits Vercel Hobby, the three free Render web services in the [Blueprint](../../render.yaml), and one Neon Free project. Render's 750 instance-hours are shared across the workspace. Three running services consume three hours per wall-clock hour, and free instances can sleep and lose local files. The Neon plan lists 100 CU-hours/month and 1 GB of database storage per project. This is a plan assumption checked 2026-11-07. Persistent upload storage, paid compute, excess usage, tracing, partner fees, taxes and human review are outside the case total. [Vercel Hobby](https://vercel.com/docs/plans/hobby) · [Render Free](https://render.com/docs/free) · [Neon Free](https://neon.com/blog/neon-free-plan-1-gb-per-project)
+
 ## Proposed pilot and recovery
 
 Start with a supervised synthetic walkthrough. Include a patient, a caregiver and a multi-cover household across several cases. Ask reviewers to identify the next responsible actor, correct a source fact, and show evidence for the final outcome. Only consider a limited real-user pilot after the identity, permissions, storage, deletion, and partner gates are approved.
@@ -34,4 +50,4 @@ Start with a supervised synthetic walkthrough. Include a patient, a caregiver an
 
 ---
 
-Previous: [Implementation plan](implementation-plan.md) | [Index](../../README.md) | Next: [Assignment traceability](../traceability.md)
+Previous: [Phased implementation plan](implementation-plan.md) | [Index](../../README.md) | Next: [Validation plan and results](validation-plan.md)

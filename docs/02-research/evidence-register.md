@@ -143,8 +143,8 @@ These are kept open. The brief and lifecycle documents must show how each is ans
 
 ## 9. Gaps
 
-1. No case where the bank credit amount differs from the settlement letter (assignment branch challenge 2). Designed from rules until found.
-2. No case where caregiver consent changes or is withdrawn during a claim (branch challenge 3). Designed from rules and labelled as a hypothesis until found.
+1. **Bank credit differs from settlement letter (branch challenge 2).** On 2026-11-07, a targeted public search found short-settlement disputes and accounts of a settled status without a credit. The reviewed candidates did not establish both the settlement-letter amount and a different received bank credit for the same payment. E-13 distinguishes portal status from bank credit. The Ombudsman award S-30 records a smaller credit than the claimed amount and a request for a deduction breakdown. It does not establish a letter-to-credit difference. The exact mismatch remains a synthetic design scenario.
+2. **Caregiver consent changes mid-claim (branch challenge 3).** On 2026-11-07, a targeted public search found representative and consent material and accounts of relatives managing claims. The National Health Authority policy S-31 describes withdrawable health-data consent. The reviewed candidates did not document an actual withdrawal or change of representative authority during an active claim with another relevant cover. This remains a design hypothesis.
 3. Alternatives not yet checked at source: broker claim services, advisor support, an insurer app's tracking.
 4. Official IRDAI page links for S-03 and S-04; later amendments to the 2024 circulars.
 5. No interviews or observed workflows yet.
@@ -155,4 +155,4 @@ No market size, adoption rate or willingness to pay is claimed anywhere in this 
 
 ---
 
-Previous: Product brief (planned) | [Index](../../README.md) | Next: [Alternatives](alternatives.md)
+Previous: [Claimwise product brief](../01-product-brief.md) | [Index](../../README.md) | Next: [Alternatives](alternatives.md)
