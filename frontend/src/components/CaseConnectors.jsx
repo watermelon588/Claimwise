@@ -1,7 +1,7 @@
 // In-chat approval for the case's verified demo providers.
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { ArrowUpRight, Check, Download, Hospital, Landmark, Mail, Plug, RefreshCw, ShieldCheck, X } from 'lucide-react'
-import { Button, Outline, Quiet } from './ui.jsx'
+import { Accent, Outline, Quiet } from './ui.jsx'
 import { EYEBROW, FIELD, ICON } from './tokens.js'
 
 const TOOLS = [
@@ -40,8 +40,9 @@ async function gateway(thread, suffix = '', method = 'GET', data, signal) {
 }
 
 /** One scoped provider request, separate from subsequent claim approvals. */
-function ProviderRow({ tool, connected, selected, disabled, onSelect, onRemove, onOpen }) {
+function ProviderRow({ tool, connected, selected, disabled, primary, onSelect, onRemove, onOpen }) {
   const { Icon } = tool
+  const Connect = primary ? Accent : Outline
   return (
     <li className="rounded-2xl border border-line bg-paper p-3.5">
       <div className="flex items-start gap-3">
@@ -52,7 +53,7 @@ function ProviderRow({ tool, connected, selected, disabled, onSelect, onRemove, 
         </div>
         {connected
           ? <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-1 text-[11px] font-semibold text-teal-900"><Check {...ICON} size={12} /> Connected</span>
-          : <Outline className="h-8 px-2.5 text-xs" onClick={onSelect} disabled={disabled} aria-expanded={selected}>Connect</Outline>}
+          : <Connect className="h-8 px-2.5 text-xs" onClick={onSelect} disabled={disabled} aria-expanded={selected}>Connect</Connect>}
       </div>
       {connected && (
         <div className="mt-2 flex flex-wrap gap-2 pl-[3.25rem]">
@@ -81,6 +82,9 @@ export default function CaseConnectors({ cw }) {
     if (document.visibilityState === 'visible') void cw.syncTools(catalog.case_id, false)
   })
   const selectedTool = TOOLS.find((tool) => tool.id === selected)
+  // An approved pack without a TPA connection: connecting the TPA is what unlocks "Submit for me".
+  const needsTpa = cw.claim?.stage === 'approved_to_submit' && cw.connection?.status !== 'active'
+  const OpenTools = needsTpa ? Accent : Outline
 
   useEffect(() => {
     const controller = new AbortController()
@@ -179,7 +183,7 @@ export default function CaseConnectors({ cw }) {
           <p className="text-sm font-semibold">{count ? `Connected tools · ${count}` : 'Let Pip check with your providers'}</p>
           <p className="text-xs leading-relaxed text-muted">Approve access to receive provider updates and case email.</p>
         </div>
-        <Outline className="h-9 whitespace-nowrap text-xs" onClick={open}>{count ? 'Manage tools' : 'Connect tools'} <ArrowUpRight {...ICON} size={14} /></Outline>
+        <OpenTools className="h-9 whitespace-nowrap text-xs" onClick={open}>{count ? 'Manage tools' : 'Connect tools'} <ArrowUpRight {...ICON} size={14} /></OpenTools>
       </section>
 
       <dialog ref={dialog} aria-labelledby="case-connectors-title" onClose={() => { select(''); setError(''); setInbox(null) }}
@@ -202,14 +206,15 @@ export default function CaseConnectors({ cw }) {
                 <span>Workspace verification code</span>
                 <input className={FIELD} type="password" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" maxLength={128} required />
               </label>
-              <Button type="submit" disabled={working || !canSync}>Verify case</Button>
+              <Accent type="submit" disabled={working || !canSync}>Verify case</Accent>
             </form>
           ) : (
             <>
               <ul className="space-y-2.5">
                 {TOOLS.map((tool) => (
                   <ProviderRow key={tool.id} tool={tool} connected={catalog.providers.some((p) => p.provider === tool.id && p.connected)}
-                    selected={selected === tool.id} disabled={working} onSelect={() => select(tool.id)}
+                    selected={selected === tool.id} disabled={working} primary={needsTpa && tool.id === 'tpa' && !selected}
+                    onSelect={() => select(tool.id)}
                     onRemove={() => remove(tool.id)} onOpen={() => viewResource(tool.id)} />
                 ))}
               </ul>
@@ -225,7 +230,7 @@ export default function CaseConnectors({ cw }) {
                     <span>I approve this access for the current case.</span>
                   </label>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="submit" disabled={working || !approved || !canSync}>Approve and connect</Button>
+                    <Accent type="submit" disabled={working || !approved || !canSync}>Approve and connect</Accent>
                     <Quiet onClick={() => select('')} type="button">Cancel</Quiet>
                   </div>
                 </form>

@@ -1,7 +1,7 @@
 // Policy check for the O3 pause: facts read from the uploaded policy, editable before confirming.
 import { useId, useState } from 'react'
 import { Check, ChevronDown, ExternalLink, FileCheck2, Shield } from 'lucide-react'
-import { Button, Quiet } from './ui.jsx'
+import { Accent, Quiet } from './ui.jsx'
 import { ICON } from './tokens.js'
 
 const GROUPS = [
@@ -136,9 +136,9 @@ export default function ConfirmPolicy({ pending, onAnswer, busy, onOpenDocument 
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3.5 sm:px-5">
-        <Button type="submit" disabled={busy}>
+        <Accent type="submit" disabled={busy}>
           <Check {...ICON} /> {changed ? `Confirm with ${changed} ${changed === 1 ? 'fix' : 'fixes'}` : 'Confirm details'}
-        </Button>
+        </Accent>
         <Quiet onClick={() => onAnswer(false)} disabled={busy}>Wrong document</Quiet>
       </div>
     </form>

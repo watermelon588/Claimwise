@@ -5,7 +5,7 @@ import { ArrowRight, Check, FileCheck, Landmark, ScrollText, ShieldCheck, Stetho
 import ConfirmPolicy from './ConfirmPolicy.jsx'
 import Markdown from './Markdown.jsx'
 import { MascotStatus } from './Mascot.jsx'
-import { AgentMark, Button, DropZone, Quiet } from './ui.jsx'
+import { Accent, AgentMark, DropZone, Quiet } from './ui.jsx'
 import { FIELD, ICON } from './tokens.js'
 
 // What each upload step accepts; anything else shows a notice and the step stays.
@@ -84,9 +84,9 @@ function PatientForm({ cw, act }) {
           <input className={FIELD} value={relation} onChange={(e) => setRelation(e.target.value)} placeholder="Son, daughter, spouse" required />
         </label>
       )}
-      <Button type="submit" disabled={cw.busy || !name.trim()}>
+      <Accent type="submit" disabled={cw.busy || !name.trim()}>
         Continue <ArrowRight {...ICON} />
-      </Button>
+      </Accent>
     </form>
   )
 }
@@ -185,9 +185,9 @@ function AuthorityForm({ cw }) {
         <span className="text-sm font-medium">Valid until (leave empty if it does not expire, or to use the date on the proof)</span>
         <input type="date" className={`${FIELD} h-10 w-auto`} value={expires} onChange={(e) => setExpires(e.target.value)} />
       </label>
-      <Button type="submit" disabled={cw.busy || !name.trim() || !scope.length || (needsProof && !proof)}>
+      <Accent type="submit" disabled={cw.busy || !name.trim() || !scope.length || (needsProof && !proof)}>
         {saving ? 'Recording authority…' : 'Record authority'} <ArrowRight {...ICON} />
-      </Button>
+      </Accent>
     </form>
   )
 }

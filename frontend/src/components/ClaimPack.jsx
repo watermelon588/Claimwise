@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Download, ExternalLink, FileText, Mail } from 'lucide-react'
 import { docLabel } from '../flow.js'
 import { EYEBROW, ICON } from './tokens.js'
-import { Button, FilePick } from './ui.jsx'
+import { Accent, Button, FilePick } from './ui.jsx'
 
 const STATUS = {
   approved: 'Approved',
@@ -93,7 +93,7 @@ export default function ClaimPack({ threadId, claim, pending, busy, onUpload, on
         <a href={`${endpoint}/pdf`} download className={LINK}><Download {...ICON} /> Download PDF</a>
         <a href={`${endpoint}/eml`} download className={LINK}><Mail {...ICON} /> Download email draft</a>
         <FilePick onFile={onUpload} disabled={busy || pending}>Add supporting document</FilePick>
-        {status === 'changed' && <Button onClick={onReview} disabled={busy || pending}>Review updated pack</Button>}
+        {status === 'changed' && <Accent onClick={onReview} disabled={busy || pending}>Review updated pack</Accent>}
         {pending && <p className="w-full text-xs text-muted">Answer the approval card before adding documents.</p>}
       </footer>
     </section>

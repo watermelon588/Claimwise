@@ -1,7 +1,7 @@
 // Claim pack approval for the prepare_submission pause: pack facts, documents and the cover letter.
 import { Check, FileText } from 'lucide-react'
 import { docLabel, money } from '../flow.js'
-import { Button, Quiet } from './ui.jsx'
+import { Accent, Quiet } from './ui.jsx'
 import { EYEBROW, ICON } from './tokens.js'
 
 const ROWS = [
@@ -64,7 +64,7 @@ export default function ApproveSubmission({ pending, onAnswer, busy }) {
         </details>
       </div>
       <footer className="flex flex-wrap items-center gap-2 border-t border-line bg-milk/50 px-5 py-4 sm:px-6">
-        <Button onClick={() => onAnswer(true)} disabled={busy}><Check {...ICON} /> Approve pack</Button>
+        <Accent onClick={() => onAnswer(true)} disabled={busy}><Check {...ICON} /> Approve pack</Accent>
         <Quiet onClick={() => onAnswer(false)} disabled={busy}>Not yet</Quiet>
         <span className="ml-auto text-xs text-muted">You submit it yourself on the insurer portal.</span>
       </footer>
