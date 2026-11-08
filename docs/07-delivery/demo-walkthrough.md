@@ -1,10 +1,12 @@
-# Demo walkthrough: full recording script (about 40 minutes)
+# Demo walkthrough: illustrated guide and recording script
 
-This is the script for the recorded walkthrough of the Claimwise prototype. It is written for the presenter. The audience is the assignment reviewers. It covers every journey the brief asks for, every feature the prototype has, every provider connector, and the fallbacks and edge cases, with the Mock Console used to prove each outcome from the other side.
+Use this walkthrough to follow the Claimwise prototype from policy upload to submission, then read through the decision, payment, caregiver and recovery scenarios.
 
-- Script date: 2026-11-07. Every date below assumes you record on **2026-11-07**. If you record on another day, follow [Dates](#5-dates-used-in-this-script) to shift them.
+**Screenshot coverage.** The hosted demo screenshots show the opening tour and the standard reimbursement case through [submission to the mock payer](#step-19-submit-and-prove-there-is-exactly-one-claim). The decision, payment verification and Runs 2 to 7 continue as written instructions. See the [three worked journeys](../06-experience/journeys.md) and [historical validation results](validation-plan.md) for evidence beyond the captures.
+
+- The full recording script runs about 40 minutes. Script date: 2026-11-07. Every date below assumes you record on **2026-11-07**. If you record on another day, follow [Dates](#5-dates-used-in-this-script) to shift them.
 - All names, policies, bills and bank records are synthetic. Every mock PDF is stamped as a mock document.
-- Each step lists what to **Do**, what to **Verify** in the Mock Console, what is **On screen** in Claimwise, what to **Say**, and which validation spec it **Proves** ([validation-plan.md](validation-plan.md)). Steps marked **Not yet rehearsed** use a path that no automated live run has covered. Confirm the result while recording and cut the take if it differs.
+- Each step lists what to **Do**, what to **Verify** in the Mock Console, what is **On screen** in Claimwise, what to **Say**, and the corresponding validation spec under **Proves** ([validation-plan.md](validation-plan.md)). Steps marked **Not yet rehearsed** use a path that no automated live run has covered. Confirm the result while recording and cut the take if it differs.
 
 ---
 
@@ -218,10 +220,18 @@ Each connector needs the onboarding code once per claim, then its own sign-in co
 - **Do:** Tab A, the Claimwise home page with Pip, the mascot.
 - **Say:** "Hi, I'm Rohit, and this is Claimwise. When someone in your family is in hospital, the insurance claim is a second job: collecting papers, answering the insurer's questions, reading the decision, checking the money arrived, and disputing it when it's wrong. Claimwise is one agent that stays with the claim from the first document to the final rupee, for the patient, for a family member helping them, and for a household with more than one policy. It gives administrative help only. It never gives medical or legal advice, and it never sends anything without my approval."
 
+![Claimwise landing page with Pip and the Open Claim Assistant button](../assets/walkthrough/00-home.png)
+
+*The landing page opens the claim workspace.*
+
 ### Step 0.2 The three screens
 
 - **Do:** Show Tab A (`/app`), then Tab B (`/mocks`). Scroll the Mock Console once: Test scenario, Test controls, Request, Response, PDF documents.
 - **Say:** "Three screens. The Claim Assistant is the patient's side. The Mock Console plays everyone else: the hospital, the insurer and its TPA, the bank, the grievance cell and the Ombudsman. Indian insurers and hospitals have no public test APIs and medical data is sensitive, so we built stand-ins we control. They generate real PDFs, decide and pay claims, move a test clock and inject failures. After every step I'll come here to prove what really happened on the other side. Third, inside the app, a Connect tools panel where I give consent, provider by provider."
+
+![Fresh Claimwise workspace showing the policy upload step](../assets/walkthrough/02-app-empty.png)
+
+*The claim workspace starts with a policy upload.*
 
 ### Step 0.3 Reset the mock world
 
@@ -242,12 +252,20 @@ Each connector needs the onboarding code once per claim, then its own sign-in co
 - **Verify:** Admit response `200` with an `ADM-...` ID. Discharge response lists the two document IDs.
 - **Say:** "Every claim starts at the hospital. Ramesh is admitted for an appendectomy and discharged three days later with a discharge summary and an itemised bill of sixty thousand rupees. I also take his policy schedule. These are real PDFs, exactly what a family carries home."
 
+![Mock Console listing the generated discharge summary and final bill](../assets/walkthrough/01-mock-console.png)
+
+*The Mock Console exposes the hospital PDFs for download.*
+
 ### Step 1.2 Upload the policy and confirm it
 
 - **Do:** Tab A. **New** in the sidebar. Drop the policy schedule on **Upload your policy**. On **Check the policy details**, change one field (for example the TPA name), change it back, then **Confirm details**.
 - **On screen:** "Reading your policy...", then the extracted policy number, insurer, TPA, sum insured, members, next to the original PDF.
 - **Say:** "The model reads the policy, but nothing is used until I confirm it, and I can correct any field it got wrong."
 - **Proves:** V-01, V-02.
+
+![Review form showing the extracted insurer, policy, members and coverage fields](../assets/walkthrough/03-confirm-policy.png)
+
+*The user reviews the extracted policy fields before confirming them.*
 
 ### Step 1.3 Who is the patient
 
@@ -256,12 +274,20 @@ Each connector needs the onboarding code once per claim, then its own sign-in co
 - **Say:** "I'm claiming for myself. Claimwise checks that the patient is a member of this policy. A family member would first have to show authority, which we'll see in Run 3."
 - **Proves:** V-03.
 
+![Patient selection with The patient and Ramesh Sharma selected](../assets/walkthrough/04-who-is-patient.png)
+
+*Ramesh selects himself from the covered members.*
+
 ### Step 1.4 Claim type, and staying on task
 
 - **Do:** **Type of claim**: **Reimbursement**. Then type in the chat: `Write me a poem about hospitals.`
 - **On screen:** A fixed reply that names the current step. Nothing changes.
 - **Say:** "Reimbursement is saved by the button, not guessed by the model. And the agent stays on the claim: a poem request gets a polite redirect and changes nothing."
 - **Proves:** V-37, V-06.
+
+![Claimwise redirects a poem request to the current claim task](../assets/walkthrough/07-poem-redirect.png)
+
+*The off-topic message was captured after the wrong-patient check. The reply points back to the outstanding document correction.*
 
 ### Step 1.5 Wrong file, then a document for the wrong person
 
@@ -270,12 +296,24 @@ Each connector needs the onboarding code once per claim, then its own sign-in co
 - **Say:** "A recipe uploaded by mistake is rejected and its stored copy deleted, so it can never reach a claim pack. Then a discharge summary with someone else's name: Claimwise cross-checks every document against the policy and the other papers and blocks the claim. An insurer would have rejected this weeks later."
 - **Proves:** V-04, V-05.
 
+![Claimwise rejects a recipe and keeps the discharge summary upload open](../assets/walkthrough/05-recipe-rejected.png)
+
+*The recipe is rejected and the discharge summary upload stays open.*
+
+![Needs you shows that the discharge summary names a different patient](../assets/walkthrough/06-wrong-patient.png)
+
+*The document for a different patient appears as a blocking issue.*
+
 ### Step 1.6 The right documents
 
 - **Do:** Drop the discharge summary (`02_discharge_summary.pdf`), then the final bill (`03_final_bill.pdf`). If asked, choose **Use the new version**.
 - **On screen:** Blocker cleared; checklist complete; **Prepare my claim pack** appears. Open the **Documents** list and preview one original.
 - **Say:** "The right summary and the bill. Names, dates and the policy period line up, and the bill lines add up to its total."
 - **Proves:** V-05, V-18.
+
+![Corrected discharge summary preview beside the extracted patient and admission details](../assets/walkthrough/08-document-preview.png)
+
+*The original discharge summary appears next to the extracted facts.*
 
 ### Step 1.7 Prepare, read and approve the claim pack
 
@@ -284,11 +322,31 @@ Each connector needs the onboarding code once per claim, then its own sign-in co
 - **Say:** "One PDF with a cover letter and every document, plus a ready email draft. Nothing leaves without my approval, and the approval is tied to this exact content. If I change a document afterwards, the approval resets and I approve again."
 - **Proves:** V-07, V-08.
 
+![Claim pack preview with three supporting documents and Awaiting approval status](../assets/walkthrough/09-ready-to-build.png)
+
+*The pack preview lists the three documents selected for submission.*
+
+![Claim pack approval card displaying documents, cover letter and Approve pack button](../assets/walkthrough/10-approve-pack.png)
+
+*The user can review the exact documents and cover letter before approving.*
+
+![Approved claim pack with PDF and email download options](../assets/walkthrough/11-pack-approved.png)
+
+*After approval, the pack can be downloaded for manual handoff or submitted through a connected TPA.*
+
 ### Step 1.8 Connect the TPA with consent
 
 - **Do:** In the **Connected tools** card, **Connect tools**. Enter the **onboarding code** from Terminal 2, **Verify case**. On **Medivista TPA**, **Connect**, enter the TPA sign-in code, tick the approval box, confirm. Close the panel.
 - **On screen:** Medivista TPA shows **Connected**; the card reads **Connected tools · 1**; **Submit for me** appears next to the downloads.
 - **Say:** "To submit for me, Claimwise needs my TPA account. This panel says exactly what it may do: read status, messages and decisions. Sending documents still needs a separate approval. I prove I'm the account holder with the sign-in code and tick consent. Consent is per claim and I can disconnect at any time."
+
+![Connect tools panel with separate entries for the TPA, doctor portal, bank, insurer and case email](../assets/walkthrough/12-connect-tools.png)
+
+*Connect tools shows the permissions requested by each demo provider.*
+
+![Medivista TPA consent form with the sign-in field masked and the approval box checked](../assets/walkthrough/13-tpa-consent.png)
+
+*The TPA consent form requires a separate approval for the current case.*
 
 ### Step 1.9 Submit, and prove there is exactly one claim
 
@@ -297,6 +355,14 @@ Each connector needs the onboarding code once per claim, then its own sign-in co
 - **Verify:** Tab B, **Insurer, List claims**, **Send request**: exactly one claim, status `submitted`, the same claim number. **View claim**: the line items and amounts from the pack.
 - **Say:** "Submitted, with a unique key, so even a double click can't create two claims. The regulator's fifteen-day settlement clock starts. And here on the insurer's side: exactly one claim, with our amounts."
 - **Proves:** V-09, V-29.
+
+![Claimwise shows a submitted claim number and the Insurer review stage](../assets/walkthrough/14-submitted.png)
+
+*Claimwise shows the payer's claim number and moves to insurer review.*
+
+![Mock Console List claims response showing the submitted reimbursement claim](../assets/walkthrough/15-mock-one-claim.png)
+
+*The Mock Console lists the submitted reimbursement claim on the payer side.*
 
 ### Step 1.10 The insurer decides; Claimwise hears about it on its own
 
